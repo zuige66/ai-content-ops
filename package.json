@@ -1,0 +1,23 @@
+{
+  "name": "zhibo-auto",
+  "version": "0.1.0",
+  "description": "大肥鱼的多平台自媒体自动化：做视频（网页动画+录屏）、B站/抖音投稿、评论（默认关）。独立项目，不依赖 DSH。",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "start:open": "node server.mjs --open",
+    "dev": "node --watch server.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "element-plus": "^2.14.7",
+    "ffmpeg-static": "^5.2.0",
+    "playwright-core": "^1.49.0",
+    "vue": "^3.5.44"
+  },
+  "license": "MIT"
+}

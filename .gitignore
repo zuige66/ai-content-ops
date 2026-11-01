@@ -1,0 +1,30 @@
+# ⚠️ 这个文件不支持行尾注释，注释必须独占一行，否则整行会被当成匹配模式
+
+# 依赖
+node_modules/
+
+# 🔴 凭证与运行留痕，绝不进仓库
+# 各平台浏览器 profile（登录态 cookie 就在里面）
+sessions/
+# 业务日志，含账号 id
+logs/
+# 任务快照、抖音数据缓存、调试截图
+state/
+# 成片与中间产物（一个原始录屏就 45MB）
+video/out/
+# 进程 pid、控制台日志
+.run/
+
+# 🔴 本机配置：路径因机器而异，用 config.example.json 复制一份
+config.json
+
+# 本地工具 / 工作目录
+.taste-skill/
+.workbuddy-ai/
+# 内部调研与第三方参考代码，不进公开仓库
+docs/
+
+# 杂项
+*.log
+.DS_Store
+Thumbs.db

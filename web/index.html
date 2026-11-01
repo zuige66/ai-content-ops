@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>zhibo-auto · 大肥鱼自动化</title>
+
+<!-- 字体：先令牌，后版式。字体文件都在 vendor 里，不走 CDN -->
+<link rel="stylesheet" href="/vendor/fonts/noto-sans-sc.css">
+<link rel="stylesheet" href="/styles/fonts.css">
+<link rel="stylesheet" href="/styles/tokens.css">
+<link rel="stylesheet" href="/styles/app.css">
+
+<!-- 图标就是侧栏那个"鱼"字，内联成 data URI。
+     不加这一行，浏览器每次都会去要 /favicon.ico，控制台里永远有一条 404。 -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23B0274A'/%3E%3Ctext x='16' y='23' font-size='19' font-family='sans-serif' font-weight='600' fill='%23fff' text-anchor='middle'%3E%E9%B1%BC%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+
+<div id="app" v-cloak></div>
+
+<!-- 只留两个运行时：Vue（带模板编译器）和 GSAP（动效层）。
+     原来的 Element Plus 那一套 1.6MB 已经不在了。 -->
+<script src="/vendor/vue.global.prod.js"></script>
+<script src="/vendor/gsap.min.js"></script>
+<script type="module" src="/app/main.js"></script>
+
+</body>
+</html>

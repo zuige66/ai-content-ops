@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>card 模板 · 大肥鱼</title>
+<style>
+/* ══════════════════════════════════════════════════════════════
+   card 模板（v1）：竖屏 1080×1920 自我介绍/栏目卡
+   数据由 make.mjs 注入：window.__CARDA__({title, lines[], narration, dur})
+   时间轴全部由 JS 挂钟驱动（不依赖 CSS animation 的不确定性），
+   录屏时 page.waitForFunction('__DONE__') 结束 —— 时长=配音+收尾 0.8s。
+   ══════════════════════════════════════════════════════════════ */
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1920px;overflow:hidden}
+body{
+  font-family:"Microsoft YaHei","PingFang SC",sans-serif;
+  background:linear-gradient(165deg,#FFE9F2 0%,#FFD9E6 38%,#E8D5FF 100%);
+  color:#3A2438;position:relative;
+}
+/* 背景装饰泡泡 */
+.bub{position:absolute;border-radius:50%;background:rgba(255,255,255,.45)}
+.b1{width:420px;height:420px;left:-120px;top:180px}
+.b2{width:260px;height:260px;right:-70px;top:640px}
+.b3{width:180px;height:180px;left:80px;bottom:420px}
+.b4{width:110px;height:110px;right:160px;bottom:640px}
+
+#stage{position:absolute;inset:0;padding:120px 90px;display:flex;flex-direction:column}
+
+/* 顶部小标签 */
+#tag{display:inline-flex;align-items:center;gap:14px;background:rgba(255,255,255,.72);
+  border:1px solid rgba(176,39,74,.18);border-radius:999px;padding:16px 34px;
+  font-size:34px;font-weight:600;color:#B0274A;width:max-content;
+  opacity:0;transform:translateY(-24px);transition:.6s}
+#tag.on{opacity:1;transform:none}
+#tag .dot{width:16px;height:16px;border-radius:50%;background:#B0274A}
+
+/* 主标题 */
+#title{margin-top:64px;font-size:96px;font-weight:800;line-height:1.25;letter-spacing:2px;
+  opacity:0;transform:translateY(30px);transition:.7s}
+#title.on{opacity:1;transform:none}
+#title em{font-style:normal;color:#B0274A}
+
+/* 逐条文案卡 */
+#lines{margin-top:80px;display:flex;flex-direction:column;gap:34px}
+.line{display:flex;align-items:center;gap:30px;background:rgba(255,255,255,.82);
+  border:1px solid rgba(176,39,74,.12);border-radius:36px;padding:44px 48px;
+  box-shadow:0 18px 44px rgba(176,39,74,.10);
+  opacity:0;transform:translateX(-60px);transition:.55s}
+.line.on{opacity:1;transform:none}
+.line .no{flex:0 0 auto;width:64px;height:64px;border-radius:50%;background:#B0274A;color:#fff;
+  display:flex;align-items:center;justify-content:center;font-size:36px;font-weight:700}
+.line .txt{font-size:52px;font-weight:600;line-height:1.4}
+
+/* 吉祥物：一条会蹦的鲸鱼（没有图片素材，emoji 先顶着，模板可换） */
+#pet{position:absolute;right:96px;bottom:470px;font-size:150px;
+  filter:drop-shadow(0 20px 26px rgba(176,39,74,.25));
+  opacity:0;transform:scale(.6) rotate(-8deg);transition:.6s cubic-bezier(.34,1.56,.64,1)}
+#pet.on{opacity:1;transform:scale(1) rotate(-8deg);animation:bob 2.2s ease-in-out infinite}
+@keyframes bob{0%,100%{translate:0 0}50%{translate:0 -26px}}
+
+/* 底部字幕条 —— 跟直播画面那条一个意思：她正在说的那句话 */
+#sub{position:absolute;left:90px;right:90px;bottom:150px;background:rgba(255,255,255,.92);
+  border:1px solid rgba(176,39,74,.16);border-radius:40px;padding:44px 56px;
+  font-size:54px;font-weight:600;text-align:center;line-height:1.5;color:#3A2438;
+  box-shadow:0 24px 60px rgba(176,39,74,.16);min-height:150px;
+  display:flex;align-items:center;justify-content:center;
+  opacity:0;transform:translateY(30px);transition:.5s}
+#sub.on{opacity:1;transform:none}
+
+/* 收尾 */
+#outro{position:absolute;inset:0;background:linear-gradient(165deg,#B0274A,#7E1C38);
+  color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:44px;opacity:0;pointer-events:none;transition:.6s}
+#outro.on{opacity:1}
+#outro .big{font-size:120px;font-weight:800}
+#outro .small{font-size:52px;opacity:.85}
+</style>
+</head>
+<body>
+<div class="bub b1"></div><div class="bub b2"></div><div class="bub b3"></div><div class="bub b4"></div>
+<div id="stage">
+  <div id="tag"><span class="dot"></span><span id="tagTxt">大肥鱼 · 新栏目</span></div>
+  <div id="title"></div>
+  <div id="lines"></div>
+</div>
+<div id="pet">🐋</div>
+<div id="sub"></div>
+<div id="outro"><div class="big">关注 大肥鱼</div><div class="small">抖音 & B站 同步更新</div></div>
+
+<script>
+/* 时间轴：JS 挂钟说了算。
+   0.4s 标签 → 1.2s 标题 → 文案按剩余时间均分 → 字幕全程滚动 → 结尾 outro 0.8s → __DONE__ */
+window.__CARDA__ = function (d) {
+  const D = (d.dur || 10)              // 总时长（配音时长 + 收尾）
+  document.getElementById('tagTxt').textContent = d.tag || '大肥鱼 · 新栏目'
+  const titleEl = document.getElementById('title')
+  titleEl.innerHTML = (d.title || '大家好，我是大肥鱼').replace(/<([^>]+)>/g, m => m)
+    .replace(/【(.+?)】/g, '<em>$1</em>')   // 【】里的字用强调色
+  const linesEl = document.getElementById('lines')
+  const lines = d.lines || []
+  linesEl.innerHTML = lines.map((t, i) =>
+    `<div class="line" id="ln${i}"><span class="no">${i + 1}</span><span class="txt">${esc(t)}</span></div>`).join('')
+
+  const subEl = document.getElementById('sub')
+  const subs = splitSubs(d.narration || d.lines?.join('，') || '')
+  let subIdx = -1
+
+  const lineT0 = 2.0
+  const lineEvery = lines.length ? Math.max(1.2, (D - 2.6) / lines.length) : 2
+  document.getElementById('tag').classList.add('on')
+  setTimeout(() => titleEl.classList.add('on'), 900)
+  setTimeout(() => document.getElementById('pet').classList.add('on'), 1500)
+  setTimeout(() => subEl.classList.add('on'), 1800)
+  lines.forEach((_, i) => setTimeout(() => document.getElementById('ln' + i)?.classList.add('on'), (lineT0 + i * lineEvery) * 1000))
+
+  const t0 = performance.now()
+  function tick() {
+    const t = (performance.now() - t0) / 1000
+    const want = Math.min(subs.length - 1, Math.floor(t / (D / Math.max(1, subs.length))))
+    if (want !== subIdx && subs[want]) {
+      subIdx = want
+      subEl.textContent = subs[want]
+    }
+    if (t >= D - 0.8) document.getElementById('outro').classList.add('on')
+    if (t >= D) { window.__DONE__ = true; return }
+    requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+
+  function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }
+  /* 字幕切句：≤22 字一段，优先在标点处断 */
+  function splitSubs(text) {
+    const out = []
+    for (const seg of String(text).split(/(?<=[。！？!?；;\n])/)) {
+      const s = seg.trim()
+      if (!s) continue
+      if (s.length <= 22) { out.push(s); continue }
+      for (let i = 0; i < s.length; i += 22) out.push(s.slice(i, i + 22))
+    }
+    return out.length ? out : ['']
+  }
+}
+</script>
+</body>
+</html>

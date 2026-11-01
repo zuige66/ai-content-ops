@@ -1,0 +1,18 @@
+/* ═══════════════════════════════════════════════════════════════
+ * fonts.css —— 拉丁与数字用 DM Sans（有真正的等宽数字）
+ *
+ * 汉字不归它管：DM Sans 没有汉字，硬套会掉回系统默认字体。
+ * 汉字交给 /vendor/fonts/noto-sans-sc.css（按 unicode-range 分片，
+ * 浏览器只下载页面上真的用到的那些字块）。
+ * 两个都在本地，不连 CDN —— 这项目本来就是离线跑的。
+ * ═══════════════════════════════════════════════════════════════ */
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("/vendor/fonts/files/dm-sans-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+                 U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122,
+                 U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}

@@ -1,0 +1,103 @@
+/* ═══════════════════════════════════════════════════════════════
+ * tokens.css —— 设计令牌层
+ *
+ * 方向来自 tasteskill 的 app 样式表：accent-ladder（seed 921520057）。
+ * 它的那一手是：品牌色只在"小东西"上用满色 —— 一个实心按钮、数据系列、
+ * 当前导航项 —— 所有"面积"交给它的浅色调（导航选中行、进度轨、徽标）。
+ *
+ * 一处有据可依的改判（redraw）：样式表发的是 raspberry #b8336a，但大肥鱼
+ * 自己的色相是胭脂红 #b0274a。样式表明确允许"用品牌自己的色相替换发到的
+ * 颜色"，所以这里换成品牌色，并把底色朝这个色相最浅的调子偏一格，
+ * 让页面和浅色调读成一家人（而不是默认的 #f9fafb 冷灰）。
+ *
+ * 全站只有这一个文件定义"长什么样"。改主题只动这里。
+ * ═══════════════════════════════════════════════════════════════ */
+:root {
+  /* ── 面 ── */
+  --ground: #FAF8F9;        /* 页面底：向品牌色相偏一格的暖白 */
+  --surface: #FFFFFF;       /* 卡片 */
+  --raised: #F5F3F4;        /* 卡内的次级面（键值井、输入框底） */
+  --active: #EDEAEC;        /* 中性选中（表格选中行、hover） */
+
+  /* ── 线（三档：卡边 / 行线 / 控件边） ── */
+  --border: #E7E4E6;
+  --rule: #F2EFF0;
+  --control: #D3CFD1;
+
+  /* ── 字（三档，每一档都过 4.5:1） ── */
+  --text: #14161A;
+  --muted: #5F6266;
+  --faint: #6B6E72;         /* 占位符也用它，不用 #9xx 那种看不清的灰 */
+
+  /* ── 唯一强调色：胭脂红 ── */
+  --accent: #B0274A;
+  --accent-soft: #FBEDF1;   /* 面积用这一层 */
+  --accent-track: #F3D5DF;  /* 进度轨、未完成的段 */
+  --accent-ink: #6B1A32;    /* 浅底上的深字 */
+
+  /* ── 语义色：只给状态，不做装饰 ── */
+  --positive: #247B50;
+  --negative: #C4242A;
+  --warning: #92400E;
+
+  --pill-positive-bg: #DCFCE7; --pill-positive-ink: #14532D;
+  --pill-negative-bg: #FFEDEA; --pill-negative-ink: #831C1E;
+  --pill-warning-bg:  #FFFBEB; --pill-warning-ink:  #92400E;
+  --pill-neutral-bg:  #F3F4F6; --pill-neutral-ink:  #374151;
+  --pill-accent-bg:   #FBEDF1; --pill-accent-ink:   #6B1A32;
+
+  /* ── 主按钮：近黑。品牌色留给"当前/正在发生"的那个数据点 ── */
+  --primary: #1D1F20;
+  --primary-hover: #2C2F30;
+
+  /* ── 终端（日志是真的代码块，允许深底 + 等宽） ── */
+  --term: #14161A;
+  --term-2: #1A1C21;
+  --term-line: #26282E;
+  --term-ink: #C4C8CF;
+  --term-dim: #71767E;
+
+  /* ── 字体：拉丁/数字用 DM Sans（有等宽数字），汉字落到 Noto Sans SC ──
+   * 两个都真加载，不从 CDN 取，离线也成立。 */
+  --font: "DM Sans", "Noto Sans SC Variable", "PingFang SC",
+          "Microsoft YaHei UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", ui-monospace,
+               "SF Mono", Consolas, monospace;
+
+  /* ── 字号：6 档，够用 ── */
+  --fs-title: 32px;
+  --fs-section: 18px;
+  --fs-kpi: 24px;
+  --fs-card: 15px;
+  --fs-body: 14px;
+  --fs-small: 12px;
+  --fs-min: 11px;           /* 下限，再小就不给用 */
+
+  /* ── 圆角：只有三种（卡 8 / 控件 6 / 徽标 4） ── */
+  --radius-card: 8px;
+  --radius-control: 6px;
+  --radius-chip: 4px;
+
+  /* ── 间距：一个 gap 值横竖通用 ── */
+  --gap: 24px;
+  --pad: 24px;
+  --card-pad-y: 20px;
+  --card-pad-x: 24px;
+
+  /* ── 密度：sparse。行高、控件高、导航节拍 ── */
+  --row-height: 45px;
+  --control-height: 32px;
+  --nav-pitch: 34px;
+  --nav-row: 32px;
+  --sidebar-width: 216px;
+  --topbar: 52px;           /* 顶栏；侧栏标识行同高，横线才拉得通 */
+  --tabbar: 40px;           /* 标签页那一条 */
+  --canvas-max: 1280px;
+
+  /* ── 浮起来的东西才有阴影（弹窗、Toast） ── */
+  --shadow-float: 0 16px 40px -16px rgba(20, 22, 26, .26), 0 2px 8px rgba(20, 22, 26, .06);
+
+  /* ── 缓动：CSS 和 GSAP 共用同一套手感 ── */
+  --e-out: cubic-bezier(.22, .68, .1, 1);
+  --e-in-out: cubic-bezier(.6, 0, .2, 1);
+}

@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>diary 模板 · 大肥鱼日记</title>
+<style>
+/* ══════════════════════════════════════════════════════════════
+   diary 模板 v2：视觉小说式（气泡叙事 + 顶栏 + 皮套立绘 + 偶发信息卡）
+   视觉 token 全部来自 video/DESIGN.md，不许自创。
+   数据：window.__DIARY__({day, journalTitle, segments[], petImage, dur})
+   segment = {text} | {card:{title,big,small}}
+
+   v2 修的四个硬伤（对照参考帧 _ref_frame.png）：
+   1. #flow 之前没高度 → 15 段气泡会把内容顶出屏幕。改成固定区域
+      + 底部对齐 + overflow:hidden，老气泡自然从上方被裁掉。
+   2. 音波三根柱等高 30%，静止时像省略号 → 改成三根不同高度的静态
+      形状（参考帧就是 100%/55%/32%），只在说话时动。
+   3. word-break:break-all 把「视频。」断成「视/频。」→ 改 normal。
+   4. 信息卡自创了深蓝标题条 → 参考帧其实是「小灰标签 + 大橙数字 +
+      小字注释」，按参考改回来。
+   ══════════════════════════════════════════════════════════════ */
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1080px;height:1920px;overflow:hidden}
+body{
+  font-family:"Microsoft YaHei","PingFang SC",sans-serif;color:#14304A;position:relative;
+  background:#E7F0F9;
+}
+/* 点阵纸纹 */
+body::before{content:'';position:absolute;inset:0;
+  background-image:radial-gradient(circle at 1px 1px, rgba(255,255,255,.75) 1.5px, transparent 0);
+  background-size:34px 34px}
+
+/* ── 皮套立绘：最底层，气泡压在它上面。动效由 pet.js 挂上来 ── */
+#pet{position:absolute;right:-60px;bottom:70px;width:620px;pointer-events:none;z-index:0;
+  opacity:0;transition:opacity .6s}
+#pet.on{opacity:1}
+
+/* ── 顶栏：DAY 徽章在最前，后面跟标题 ── */
+#top{position:absolute;left:64px;right:64px;top:70px;display:flex;align-items:center;gap:22px;z-index:3}
+#top .day{background:#F5991C;color:#fff;font-size:44px;font-weight:900;letter-spacing:2px;
+  white-space:nowrap;padding:9px 28px;border-radius:11px;
+  box-shadow:5px 6px 0 rgba(30,58,95,.28);flex:none}
+#top .jt{font-size:46px;font-weight:800;letter-spacing:1px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}
+#top .ai{margin-left:auto;color:#8AA5BE;font-size:26px;font-weight:600;white-space:nowrap;
+  border:2px solid #C4D6E8;border-radius:10px;padding:6px 16px;flex:none}
+
+/* ── 气泡流：固定区域 + 底部对齐 + 超出裁掉 ── */
+#flow{position:absolute;left:64px;top:196px;width:640px;bottom:150px;
+  display:flex;flex-direction:column;justify-content:flex-end;gap:40px;
+  overflow:hidden;z-index:2}
+
+.bub{position:relative;background:#fff;border:5px solid #1E3A5F;border-radius:26px;
+  padding:34px 44px 30px;box-shadow:6px 8px 0 rgba(30,58,95,.25);
+  opacity:0;transform:translateX(-40px);transition:opacity .45s ease-out, transform .45s ease-out}
+.bub.on{opacity:1;transform:none}
+.bub .who{position:absolute;left:-6px;top:-26px;background:#F5991C;color:#fff;
+  font-size:27px;font-weight:800;padding:6px 20px;border-radius:9px;
+  border:3px solid #1E3A5F;box-shadow:3px 4px 0 rgba(30,58,95,.25)}
+/* 中文断行按语义：normal + strict，绝不 break-all */
+/* 右下角留位给音波，避免光标块怼上去；balance 治最后一行孤字 */
+.bub .txt{font-size:50px;font-weight:700;line-height:1.5;min-height:70px;
+  word-break:normal;line-break:strict;overflow-wrap:break-word;
+  padding-right:66px;text-wrap:balance}
+.bub .txt .cur{display:inline-block;width:24px;height:44px;background:#F5991C;
+  margin-left:10px;vertical-align:-6px;animation:blink .9s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+/* 光标只出现在正在说的那条上 —— 每条都挂光标会像全都在打字 */
+.bub:not(.speaking) .txt .cur{display:none}
+
+/* 音波：三根不同高度（对齐参考帧），只有正在说的那条在动 */
+.bub .wave{position:absolute;right:38px;bottom:26px;display:flex;gap:9px;
+  align-items:flex-end;height:40px}
+.bub .wave i{width:11px;background:#F5991C;border-radius:3px;transform-origin:bottom}
+.bub .wave i:nth-child(1){height:100%}
+.bub .wave i:nth-child(2){height:56%}
+.bub .wave i:nth-child(3){height:32%}
+.bub.speaking .wave i{animation:wv .9s ease-in-out infinite}
+.bub.speaking .wave i:nth-child(2){animation-delay:.18s}
+.bub.speaking .wave i:nth-child(3){animation-delay:.36s}
+@keyframes wv{0%,100%{transform:scaleY(.55)}50%{transform:scaleY(1)}}
+
+/* 信息卡：小灰标签 + 大橙数字 + 小字注释（照参考帧，不用深蓝标题条） */
+.infocard{position:relative;width:560px;background:#fff;border:5px solid #1E3A5F;
+  border-radius:22px;box-shadow:6px 8px 0 rgba(30,58,95,.25);padding:28px 36px 30px;
+  opacity:0;transform:translateX(-40px);transition:opacity .45s ease-out, transform .45s ease-out}
+.infocard.on{opacity:1;transform:none}
+.infocard .k{font-size:30px;font-weight:700;color:#5A7893;line-height:1.2}
+.infocard .big{font-size:96px;font-weight:800;color:#F5991C;line-height:1.15;margin-top:6px}
+.infocard .s{font-size:30px;color:#14304A;font-weight:700;line-height:1.3;margin-top:4px}
+</style>
+</head>
+<body>
+<div id="pet"></div>
+<div id="top">
+  <span class="day" id="dayBadge"></span>
+  <span class="jt" id="journalTitle"></span>
+  <span class="ai">AI 生成内容</span>
+</div>
+<div id="flow"></div>
+
+<script src="../petgl.js"></script>
+<script src="../pet.js"></script>
+<script>
+/* 时间轴：段落按字数加权分 TTS 时长；信息卡按 14 字折算。
+   画面最多留 4 个节点 —— 新的进来，最老的直接摘掉（底部对齐，摘顶不跳）。
+   说完最后一段持 0.8s → __DONE__。
+   __READY__ = 皮套素材就绪、正片开始的那一帧，make.mjs 靠它切录像头。 */
+window.__DIARY__ = async function (d) {
+  document.getElementById('dayBadge').textContent = 'DAY ' + (Number.isFinite(Number(d.day)) ? Number(d.day) : 1)
+  document.getElementById('journalTitle').textContent = d.journalTitle || '日记'
+
+  const petEl = document.getElementById('pet')
+  try {
+    if (d.pet) await window.PET.mount(petEl, { ...d.pet, dur: d.dur })
+    else if (d.petImage) {
+      const im = document.createElement('img')
+      im.src = d.petImage
+      im.style.cssText = 'width:100%;display:block'
+      petEl.appendChild(im)
+    }
+  } catch (e) {
+    console.error('皮套挂载失败：' + e)
+  }
+  petEl.classList.add('on')
+
+  const flow = document.getElementById('flow')
+  const segs = d.segments || []
+  const MAX_VISIBLE = 4
+
+  const nodes = segs.map(s => {
+    const el = document.createElement('div')
+    if (s.card) {
+      el.className = 'infocard'
+      el.innerHTML = `<div class="k">${esc(s.card.title || '')}</div>` +
+        `<div class="big">${esc(s.card.big || '')}</div>` +
+        `<div class="s">${esc(s.card.small || '')}</div>`
+    } else {
+      el.className = 'bub'
+      el.innerHTML = `<span class="who">红烧鱼</span>` +
+        `<div class="txt">${esc(s.text || '')}<span class="cur"></span></div>` +
+        `<span class="wave"><i></i><i></i><i></i></span>`
+    }
+    return el
+  })
+
+  /* 时长分配：优先用 TTS 的逐句时间戳（d.starts），拿不到才按字数加权。
+   * 第一条强制 0 秒 —— TTS 的 offset 是 0.1s，照抄开头会空几帧没字幕。 */
+  const D = d.dur || 10
+  const hold = 0.8
+  const talk = Math.max(1, D - hold)
+  let starts
+  if (Array.isArray(d.starts) && d.starts.length === segs.length) {
+    starts = d.starts.map((v, i) => i === 0 ? 0 : Number(v))
+  } else {
+    const weights = segs.map(s => Math.max(6, (s.card ? 14 : (s.text || '').length)))
+    const total = weights.reduce((a, b) => a + b, 0)
+    starts = []
+    let acc = 0
+    for (const w of weights) { starts.push(acc / total * talk); acc += w }
+  }
+
+  /* 打一帧同步标记：make.mjs 在录像里找它，才知道正片从第几帧开始。
+   * 必须放在挂定时器之前 —— 标记要占 0.15s，那段时间不能算进时间轴。 */
+  try { if (window.PET && window.PET.markStart) await window.PET.markStart() } catch (e) {}
+
+  const timers = []
+  segs.forEach((_, i) => {
+    timers.push(setTimeout(() => {
+      const el = nodes[i]
+      if (!el) return
+      flow.appendChild(el)                 // 进 DOM 才参与布局
+      nodes.forEach((n, k) => n.classList.toggle('speaking', k === i))
+      /* 第一条直接亮，不做淡入 —— 配音从 0 秒就开始念。
+       * 必须「transition:none → 加 .on → 立刻强制回流」，
+       * 少那次回流浏览器只算一遍样式，淡入照旧会跑。 */
+      if (i === 0) {
+        el.style.transition = 'none'
+        el.classList.add('on')
+        void el.offsetWidth
+        el.style.transition = ''
+      } else {
+        void el.offsetWidth                // 强制回流，让过渡真的跑
+        el.classList.add('on')
+      }
+      /* 超过 MAX_VISIBLE 就把最老的摘掉 —— 底部对齐，摘顶不会跳 */
+      while (flow.children.length > MAX_VISIBLE) flow.removeChild(flow.firstChild)
+      /* 表情跟着段落走，气泡弹出的同一拍皮套弹一下 */
+      if (window.PET) {
+        window.PET.set(window.PET.mood(segs[i], i, segs.length))
+        window.PET.react()
+      }
+    }, starts[i] * 1000))
+  })
+
+  window.__READY_AT__ = performance.now()
+  window.__READY__ = true
+  const t0 = performance.now()
+  function tick() {
+    const t = (performance.now() - t0) / 1000
+    if (t >= D) { window.__DONE__ = true; timers.forEach(clearTimeout); return }
+    requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }
+}
+</script>
+</body>
+</html>

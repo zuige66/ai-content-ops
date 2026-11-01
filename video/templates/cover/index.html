@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>cover 模板 · 封面</title>
+<style>
+/* ══════════════════════════════════════════════════════════════
+   cover 模板：左皮套 + 右超级标题（透视 + 景深）
+   1920×1080，静态截图，不录像。
+
+   冲击力从哪来（不是靠堆颜色）：
+   · 尺度差：标题 230px vs 正文 34px，一眼只有一个焦点
+   · 透视：整块标题绕 Y 轴内旋 13°，近大远小，像贴在墙上往里拐
+   · 景深：背景色块/光斑重度虚化（远景），皮套和标题全清晰（主体），
+     右下角一块虚焦色块压在前景 —— 三层焦平面拉开，画面才有纵深
+   · 硬投影：皮套和标题都走"贴纸"质感（0 模糊的实心偏移阴影），
+     和正片里的气泡是同一套视觉语言
+
+   数据：window.__COVER__({big, sub, day, brand, pet})
+   ══════════════════════════════════════════════════════════════ */
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{
+  font-family:"Microsoft YaHei","PingFang SC",sans-serif;color:#14304A;
+  position:relative;background:#E7F0F9;
+}
+
+/* ── 远景：全部重度虚化，制造焦外 ── */
+#bg{position:absolute;inset:0;z-index:0}
+#bg .dot{position:absolute;inset:0;
+  background-image:radial-gradient(circle at 1px 1px, rgba(255,255,255,.8) 1.5px, transparent 0);
+  background-size:38px 38px}
+/* 斜切色块：整块旋转 + 模糊，边缘软掉才像在焦外 */
+#bg .band{position:absolute;left:-14%;top:-30%;width:66%;height:170%;
+  background:linear-gradient(160deg,#F5991C 0%,#F5991C 44%,#1E3A5F 44%,#1E3A5F 100%);
+  transform:rotate(14deg);filter:blur(30px);opacity:.09}
+/* 皮套身后的暖色聚光：读作"打光"，不是脏色 */
+#bg .sun{position:absolute;left:60px;top:60px;width:860px;height:860px;border-radius:50%;
+  background:radial-gradient(circle,rgba(245,153,28,.62) 0%,rgba(245,153,28,.20) 46%,rgba(245,153,28,0) 70%);
+  filter:blur(10px)}
+/* 焦外光斑 */
+#bg .bokeh{position:absolute;border-radius:50%;filter:blur(34px);opacity:.55}
+#bg .b1{right:120px;top:60px;width:260px;height:260px;background:#8FC4F0}
+#bg .b2{right:340px;bottom:40px;width:180px;height:180px;background:#F5991C;opacity:.4}
+#bg .b3{left:620px;bottom:120px;width:120px;height:120px;background:#B9D8F2}
+
+/* ── 主体 1：皮套（清晰，贴纸质感）── */
+/* 2026-10-31：left 从 -46 收到 -16。旧静图角色左边留白多，出血 46px 看不出来；
+ * 换新的睁眼图后角色更贴画布左缘，46px 就把尾巴尖切掉了。 */
+#petWrap{position:absolute;left:-16px;bottom:-14px;width:896px;z-index:3;
+  filter:drop-shadow(16px 22px 0 rgba(30,58,95,.22))}
+#petWrap img{width:100%;display:block}
+
+/* ── 主体 2：超级标题 ── */
+#head{position:absolute;left:880px;right:96px;top:0;bottom:0;z-index:4;
+  display:flex;flex-direction:column;justify-content:center;gap:26px}
+#topline{display:flex;align-items:center;gap:20px}
+#dayTag{background:#1E3A5F;color:#fff;font-size:40px;font-weight:900;letter-spacing:3px;
+  padding:10px 26px;border-radius:8px;transform:rotate(-3deg);
+  box-shadow:7px 8px 0 rgba(245,153,28,.95)}
+#brand{font-size:34px;font-weight:800;color:#5A7893;letter-spacing:6px}
+
+/* 透视容器：绕 Y 轴内旋，近大远小 */
+#lines{transform:perspective(1500px) rotateY(-13deg) rotateX(4deg);transform-origin:left center}
+.ln{position:relative;width:max-content;font-size:210px;font-weight:900;line-height:1.02;letter-spacing:-2px;
+  white-space:nowrap;color:#1E3A5F;
+  /* 白色描边 + 硬投影：贴纸感，边缘不会糊在背景里 */
+  text-shadow:
+    -5px -5px 0 #fff, 5px -5px 0 #fff, -5px 5px 0 #fff, 5px 5px 0 #fff,
+    0 -5px 0 #fff, 0 5px 0 #fff, -5px 0 0 #fff, 5px 0 0 #fff,
+    14px 18px 0 rgba(30,58,95,.20)}
+.ln.hot{color:#F5991C}
+/* 焦外辉光：同字复制一层、模糊、错位，压在后面当散景 */
+.ln::before{content:attr(data-t);position:absolute;left:14px;top:16px;z-index:-1;
+  color:#F5991C;filter:blur(22px);opacity:.75;text-shadow:none}
+
+/* 打字光标：细一点才像"还在打"，太宽会变成一块色块 */
+#caret{display:inline-block;width:.26em;height:.74em;background:#F5991C;margin-left:.12em;
+  vertical-align:-.02em;border-radius:4px;box-shadow:0 0 34px rgba(245,153,28,.9)}
+
+/* 副标题和超级标题之间的呼吸。
+ * 🔴 这里原来是 gap:26px 直接贴着 —— 大标题的硬投影往下 18px、
+ * 橙色焦外辉光（::before，top:16px + blur 22px）还要再往下散 38px，
+ * 两层都压到副标题第一行上，看上去就是「字被挡住了、糊成一团」。
+ * 光加 gap 不够：26 + 30 = 56px 的盒子间距，扣掉 18px 投影还剩 38px 净空，
+ * 辉光散得开，又不会把整块往下推太多（#head 是居中的，推多了上沿会顶到顶栏）。 */
+#subWrap{display:flex;align-items:flex-start;gap:18px;max-width:900px;margin-top:30px}
+#subBar{flex:none;width:12px;align-self:stretch;background:#F5991C;border-radius:6px;min-height:74px}
+/* 断行优先由 JS 在标点处插 <br>（见 splitSub）—— 中文可以在任意两个字
+ * 之间断，浏览器会把「白天」劈成「白 / 天」，一条副标题读起来就散了。
+ * 🔴 但这里**不能**加 word-break:keep-all 来"禁止自动断行"：
+ * 那样连兜底都没了，遇到一整句没有标点的文案会直接横着溢出、被右边裁掉
+ * （实测 50 字无标点会撑成一行，末尾整段消失）。
+ * 保持默认折行，JS 给的 <br> 只负责把断点挪到标点处；找不到标点就让
+ * 浏览器自己折，难看一点但不会丢字。line-clamp 是最后一道保险。 */
+#sub{font-size:34px;font-weight:700;line-height:1.42;color:#3A5C7C;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+/* ── 前景：虚焦色块压在最上层，把纵深再推一层 ── */
+#fg{position:absolute;z-index:6;pointer-events:none}
+#fg .f1{position:absolute;right:-90px;bottom:-130px;width:520px;height:520px;border-radius:50%;
+  background:radial-gradient(circle,rgba(30,58,95,.34) 0%,rgba(30,58,95,0) 70%);filter:blur(26px)}
+#fg .f2{position:absolute;right:60px;top:-140px;width:300px;height:300px;border-radius:50%;
+  background:radial-gradient(circle,rgba(245,153,28,.5) 0%,rgba(245,153,28,0) 70%);filter:blur(30px)}
+
+/* ── 暗角：压住大色块，四角收一点，视线回到中间 ──
+ * 这里原来还叠了一层颗粒噪点，实测在 2 倍采样下要多花 4.5 秒（软件光栅
+ * 平铺几千次小图），而 7% 不透明度肉眼几乎看不出来 —— 性价比太低，去掉。 */
+#vig{position:absolute;inset:0;z-index:7;pointer-events:none;
+  background:radial-gradient(ellipse at 52% 46%,rgba(0,0,0,0) 52%,rgba(30,58,95,.18) 100%)}
+</style>
+</head>
+<body>
+<div id="bg">
+  <div class="dot"></div>
+  <div class="band"></div>
+  <div class="sun"></div>
+  <div class="bokeh b1"></div><div class="bokeh b2"></div><div class="bokeh b3"></div>
+</div>
+
+<div id="petWrap"><img id="pet" alt=""></div>
+
+<div id="head">
+  <div id="topline"><span id="dayTag">DAY 01</span><span id="brand">红烧鱼日记</span></div>
+  <div id="lines"></div>
+  <div id="subWrap"><span id="subBar"></span><span id="sub"></span></div>
+</div>
+
+<div id="fg"><div class="f1"></div><div class="f2"></div></div>
+<div id="vig"></div>
+
+<script>
+/* 行数怎么定：6 字以内一行到底（一行大字最狠，也躲开了「白饭不/够吃」
+ * 这种把词劈开的断法），7-10 字对半劈，11 字以上三行。
+ * 字号按最长那行反推 —— 一行塞满 940px，字大了才有冲击力。 */
+function splitLines(text) {
+  const t = String(text || '').replace(/\s+/g, '')
+  /* 竖线 = 人工指定断行。中文自动对半劈经常会劈在词中间
+   * （「模型写文 / 案翻车了」），想控制断点就用它。 */
+  if (t.includes('|')) return t.split('|').filter(Boolean)
+  const n = t.length
+  if (n <= 6) return [t]
+  const rows = n <= 10 ? 2 : 3
+  const per = Math.ceil(n / rows)
+  const out = []
+  for (let i = 0; i < n; i += per) out.push(t.slice(i, i + per))
+  return out
+}
+
+/* 副标题断行：只在中标点处断，不在字中间断。
+ * 为什么需要：浏览器按「任意两字之间都能断」处理中文，实测把
+ * 「……住在主人的电脑里，白天看他写代码……」断成了「白 / 天」，
+ * 两条行读起来是散的。这里在逗号/句号里挑一个最靠中间的断点，
+ * 要求断完两边都不超过 PER 字 —— 都不满足就交给浏览器自然折行。
+ * @param {string} t 原文
+ * @param {number} per 每行最多几个字（按可用宽度 / 字号估）
+ * @returns {string} 可以塞进 innerHTML 的文本（已转义，断点处是 <br>）
+ */
+function splitSub(t, per) {
+  const s = String(t || '')
+  if (!s) return ''
+  const esc = x => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  if (s.length <= per) return esc(s)
+  /* 候选断点：标点后面。半角标点也算，文案里偶尔混英文逗号 */
+  const marks = []
+  for (let i = 0; i < s.length - 1; i++) {
+    if ('。！？!?，,、；;：:'.includes(s[i])) marks.push(i + 1)
+  }
+  const mid = s.length / 2
+  let best = -1
+  let bestD = 1e9
+  for (const i of marks) {
+    if (i > per || s.length - i > per) continue
+    const d = Math.abs(i - mid)
+    if (d < bestD) { bestD = d; best = i }
+  }
+  if (best < 0) return esc(s)
+  return esc(s.slice(0, best)) + '<br>' + esc(s.slice(best))
+}
+
+window.__COVER__ = async function (d) {
+  const big = String(d.big || d.journalTitle || '红烧鱼日记').replace(/[。！？!?，,、\s]/g, '').slice(0, 12)
+  const rows = splitLines(big)
+  const maxLen = Math.max(...rows.map(r => r.length))
+
+  const linesEl = document.getElementById('lines')
+  rows.forEach((r, i) => {
+    const el = document.createElement('div')
+    el.className = 'ln' + (i === rows.length - 1 ? ' hot' : '')
+    el.dataset.t = r
+    el.textContent = r
+    /* 🔴 这里原来挂了一个 #caret 光标块。封面是静态图，光标不会闪，
+     * 观感就是「报到」后面粘了根橙色竖条，像被截断 —— 去掉。 */
+    linesEl.appendChild(el)
+  })
+
+  /* 字号不能靠「字数 × 估算」算 —— 两个坑：
+   *   1. 中文字宽受字体回退/合成粗体影响，估出来能偏 10%+；
+   *   2. 整块标题套了 perspective + rotateY(-13deg)，右半边朝观众转过来，
+   *      投影宽度比布局宽度还大 16%（944 → 1076），按布局宽去算必然切边。
+   * 所以直接量「投影后」的右边缘，按比例收敛到留白线以内。 */
+  const LEFT = linesEl.getBoundingClientRect().left
+  const LIMIT = 1872          // 右边缘安全线（外面还留 48px 给描边和投影）
+  let size = Math.max(96, Math.min(240, Math.floor(944 / (maxLen + 0.45))))
+  const lineEls = [...linesEl.children]
+  for (let pass = 0; pass < 4; pass++) {
+    lineEls.forEach(el => { el.style.fontSize = size + 'px' })
+    const right = Math.max(...lineEls.map(el => el.getBoundingClientRect().right))
+    if (!right || right <= LIMIT) break
+    const k = (LIMIT - LEFT) / (right - LEFT)
+    const next = Math.max(88, Math.floor(size * k * 0.995))
+    if (next >= size) break
+    size = next
+  }
+  lineEls.forEach(el => { el.style.fontSize = size + 'px' })
+
+  /* Day 0 是开号那天，`d.day || 1` 会把 0 变成 1。
+   * 不再补零 —— 视频里写的是「DAY 0」，封面也写「DAY 0」，别一个 00 一个 0。 */
+  document.getElementById('dayTag').textContent = 'DAY ' +
+    String(Number.isFinite(Number(d.day)) ? Number(d.day) : 1)
+  document.getElementById('brand').textContent = d.brand || '红烧鱼日记'
+  /* 副标题排版：先按「两行、每行 PER 字」估，再在标点处断。
+   * 870px 可用宽（900 - 12 竖条 - 18 gap）/ 34px ≈ 25 字，留一点余量。
+   * 超过两行的部分必须在标点处收尾 —— 交给 line-clamp 硬切会留下
+   * 半句话，比截断更难看。 */
+  const PER = 25
+  let subText = String(d.sub || '').replace(/\s+/g, '')
+  if (subText.length > PER * 2) {
+    const head = subText.slice(0, PER * 2)
+    let cut = -1
+    for (let i = head.length - 1; i >= 0; i--) {
+      if ('。！？!?，,、；;：:'.includes(head[i])) { cut = i + 1; break }
+    }
+    subText = cut > PER ? head.slice(0, cut) : head.slice(0, PER * 2 - 1) + '…'
+  }
+  document.getElementById('sub').innerHTML = splitSub(subText, PER)
+
+  if (d.pet) {
+    const im = document.getElementById('pet')
+    im.src = d.pet
+    await new Promise(res => { if (im.complete) res(); im.onload = res; im.onerror = res })
+  }
+  /* 等字体真正排完，否则截图会拿到回退字体的宽度 */
+  if (document.fonts && document.fonts.ready) await document.fonts.ready
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
+  window.__READY__ = true
+}
+</script>
+</body>
+</html>

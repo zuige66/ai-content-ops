@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>talk 模板 · 鱼说（横屏 16:9）</title>
+<style>
+/* ══════════════════════════════════════════════════════════════
+   talk 模板（视频类型「鱼说」）：横屏 1920×1080
+   左立绘 + 右气泡，常驻 2 条。
+   视觉 token 全部来自 video/DESIGN.md，不许自创。
+
+   和 diary 的差别（不是简单翻转）：
+   · 画幅 16:9，横向空间富裕 → 气泡更宽（968px）、字更大（56px）
+   · 常驻 2 条而不是 4 条 —— 横屏一条气泡就能占很大版面，
+     堆 4 条会变成文字墙，观众根本不读
+   · 立绘在左、气泡在右，两者**不重叠**：横屏够宽，不需要叠
+
+   v3 改动（按用户反馈）：
+   · 去掉顶栏下面的横线 —— 那条线把画面切成上下两半，很闷
+   · 标题改成「DAY 3 ＋ 标题」：Day 提到最前面，不再写「大肥鱼 的 …」
+   · 皮套从一张静图换成 4 组真帧表情（见 templates/pet.js）
+   ══════════════════════════════════════════════════════════════ */
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;overflow:hidden}
+body{
+  font-family:"Microsoft YaHei","PingFang SC",sans-serif;color:#14304A;position:relative;
+  /* 背景用直播那张粉色场景图（已把左上角的 GDUT 抹掉），1920×1080 正好铺满 */
+  background:url(bg-soft.png) center/cover no-repeat #F6DDE1;
+}
+
+/* ── 皮套：左侧，底边对齐画面底。动效由 pet.js 挂上来 ── */
+#pet{position:absolute;left:40px;bottom:0;width:760px;pointer-events:none;z-index:1;
+  opacity:0;transition:opacity .6s}
+#pet.on{opacity:1}
+
+/* ── 顶栏：DAY 徽章在最前，后面跟标题 ── */
+#top{position:absolute;left:72px;right:72px;top:44px;display:flex;align-items:center;gap:26px;z-index:3}
+#top .day{background:#F5991C;color:#fff;font-size:54px;font-weight:900;letter-spacing:2px;
+  white-space:nowrap;padding:10px 34px;border-radius:12px;
+  box-shadow:5px 6px 0 rgba(30,58,95,.28);flex:none}
+#top .jt{font-size:54px;font-weight:800;letter-spacing:1px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}
+#top .ai{margin-left:auto;color:#A65B68;font-size:28px;font-weight:600;white-space:nowrap;
+  border:2px solid #E3B4BC;border-radius:10px;padding:6px 18px;flex:none;
+  background:rgba(255,255,255,.55)}
+
+/* ── 气泡流：右侧，底部对齐，常驻 2 条 ── */
+/* 这里**不能**加 align-items:flex-start。加了气泡会先按 fit-content 收缩，
+ * 而 text-wrap:balance 在收缩状态下会把「一行放得下的 14 字」也劈成两行 ——
+ * 所以保持默认 stretch，让文字先在满宽下排好，再由 fitBubble() 收窄。 */
+#flow{position:absolute;left:880px;right:72px;top:184px;bottom:96px;
+  display:flex;flex-direction:column;justify-content:flex-end;gap:44px;
+  overflow:hidden;z-index:2}
+
+.bub{position:relative;background:#fff;border:5px solid #1E3A5F;border-radius:28px;
+  padding:40px 52px 34px;box-shadow:7px 9px 0 rgba(30,58,95,.25);max-width:100%;
+  opacity:0;transform:translateX(40px);transition:opacity .45s ease-out, transform .45s ease-out}
+.bub.on{opacity:1;transform:none}
+.bub .who{position:absolute;left:-6px;top:-28px;background:#F5991C;color:#fff;
+  font-size:28px;font-weight:800;padding:6px 22px;border-radius:9px;
+  border:3px solid #1E3A5F;box-shadow:3px 4px 0 rgba(30,58,95,.25)}
+/* padding-right 给右下角那三根音波留位（音波左边缘在气泡右边内侧 96px 处，
+   文字右边缘留到 116px，中间 20px 不贴脸）。
+   上限卡在 64：再加 6px，14 字的长句（784px）就放不下一行、被挤成两行。
+   text-wrap:balance 治「最后一行只剩一个字」的孤字。 */
+.bub .txt{font-size:56px;font-weight:700;line-height:1.45;min-height:80px;
+  word-break:normal;line-break:strict;overflow-wrap:break-word;
+  padding-right:64px;text-wrap:balance}
+.bub .txt .cur{display:inline-block;width:26px;height:48px;background:#F5991C;
+  margin-left:10px;vertical-align:-8px;animation:blink .9s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.bub:not(.speaking) .txt .cur{display:none}
+
+/* 音波：三根不同高度，只有正在说的那条在动 */
+.bub .wave{position:absolute;right:40px;bottom:26px;display:flex;gap:10px;
+  align-items:flex-end;height:42px}
+.bub .wave i{width:12px;background:#F5991C;border-radius:3px;transform-origin:bottom}
+.bub .wave i:nth-child(1){height:100%}
+.bub .wave i:nth-child(2){height:56%}
+.bub .wave i:nth-child(3){height:32%}
+.bub.speaking .wave i{animation:wv .9s ease-in-out infinite}
+.bub.speaking .wave i:nth-child(2){animation-delay:.18s}
+.bub.speaking .wave i:nth-child(3){animation-delay:.36s}
+@keyframes wv{0%,100%{transform:scaleY(.55)}50%{transform:scaleY(1)}}
+
+/* 信息卡：小灰标签 + 大橙数字 + 小字注释 */
+.infocard{position:relative;width:760px;background:#fff;border:5px solid #1E3A5F;
+  border-radius:24px;box-shadow:7px 9px 0 rgba(30,58,95,.25);padding:30px 44px 34px;
+  opacity:0;transform:translateX(40px);transition:opacity .45s ease-out, transform .45s ease-out}
+.infocard.on{opacity:1;transform:none}
+.infocard .k{font-size:32px;font-weight:700;color:#5A7893;line-height:1.2}
+.infocard .big{font-size:108px;font-weight:800;color:#F5991C;line-height:1.12;margin-top:4px}
+.infocard .s{font-size:32px;color:#14304A;font-weight:700;line-height:1.3;margin-top:4px}
+</style>
+</head>
+<body>
+<div id="pet"></div>
+<div id="top">
+  <span class="day" id="dayBadge"></span>
+  <span class="jt" id="journalTitle"></span>
+  <span class="ai">AI 生成内容</span>
+</div>
+<div id="flow"></div>
+
+<script src="../petgl.js"></script>
+<script src="../pet.js"></script>
+<script>
+/* 时间轴：和 diary 同一套，只是常驻条数不同。
+   底部对齐 + 摘最老的：摘顶不跳。
+   注意 __READY__ —— 皮套素材要等加载完才开表，否则录到的是半截空白，
+   make.mjs 按 __READY__ 的时刻把录像头切掉。 */
+window.__DIARY__ = async function (d) {
+  document.getElementById('dayBadge').textContent = 'DAY ' + (Number.isFinite(Number(d.day)) ? Number(d.day) : 1)
+  document.getElementById('journalTitle').textContent = d.journalTitle || '日记'
+
+  const petEl = document.getElementById('pet')
+  try {
+    if (d.pet) await window.PET.mount(petEl, { ...d.pet, dur: d.dur })
+    else if (d.petImage) {
+      const im = document.createElement('img')
+      im.src = d.petImage
+      im.style.cssText = 'width:100%;display:block'
+      petEl.appendChild(im)
+    }
+  } catch (e) {
+    console.error('皮套挂载失败：' + e)
+  }
+  petEl.classList.add('on')
+
+  const flow = document.getElementById('flow')
+  const segs = d.segments || []
+  const MAX_VISIBLE = 2
+
+  const nodes = segs.map(s => {
+    const el = document.createElement('div')
+    if (s.card) {
+      el.className = 'infocard'
+      el.innerHTML = `<div class="k">${esc(s.card.title || '')}</div>` +
+        `<div class="big">${esc(s.card.big || '')}</div>` +
+        `<div class="s">${esc(s.card.small || '')}</div>`
+    } else {
+      el.className = 'bub'
+      /* 不再挂 .cur 光标块。
+       * 🔴 它是 inline-block 26px + margin 10px = 36px 的行内宽度，正好把
+       * 「一行刚好放得下的 14 字」撑爆成两行（784+36 > 810 可用宽），
+       * 而 fitBubble 量出来的又是换行后的宽度，气泡就永远收不回来。
+       * 视频里右下角本来就有音波表示"正在说"，光标是网页聊天框的习惯，
+       * 在这儿只是噪音。 */
+      el.innerHTML = `<span class="who">红烧鱼</span>` +
+        `<div class="txt">${esc(s.text || '')}</div>` +
+        `<span class="wave"><i></i><i></i><i></i></span>`
+    }
+    return el
+  })
+
+  const D = d.dur || 10
+  const hold = 0.8
+  const talk = Math.max(1, D - hold)
+  /* 上屏时刻：make.mjs 会把 TTS 的逐句时间戳算好塞进来（d.starts）。
+   * 拿不到才退回「按字数摊」—— 那个算法不含停顿，短句会严重偏晚。
+   * 第一条强制 0 秒：TTS 的 offset 是 0.1s（前面那段是静音），照抄会让
+   * 视频开头空 3 帧没字幕，看起来像"卡了一下"。 */
+  let starts
+  if (Array.isArray(d.starts) && d.starts.length === segs.length) {
+    starts = d.starts.map((v, i) => i === 0 ? 0 : Number(v))
+  } else {
+    const weights = segs.map(s => Math.max(6, (s.card ? 14 : (s.text || '').length)))
+    const total = weights.reduce((a, b) => a + b, 0)
+    starts = []
+    let acc = 0
+    for (const w of weights) { starts.push(acc / total * talk); acc += w }
+  }
+
+  /* 打一帧同步标记：make.mjs 在录像里找它，才知道正片从第几帧开始。
+   * 必须放在挂定时器之前 —— 标记要占 0.15s，那段时间不能算进时间轴。 */
+  try { if (window.PET && window.PET.markStart) await window.PET.markStart() } catch (e) {}
+
+  const timers = []
+  segs.forEach((_, i) => {
+    timers.push(setTimeout(() => {
+      const el = nodes[i]
+      if (!el) return
+      flow.appendChild(el)
+      nodes.forEach((n, k) => n.classList.toggle('speaking', k === i))
+      /* 第一条直接亮，不做淡入 —— 配音从 0 秒就开始念，前 0.45 秒
+       * 观众看到的是一句半透明的话，很脏。
+       * 坑：必须「transition:none → 加 .on → 立刻强制回流」这个顺序。
+       * 少了那次回流，浏览器只算一遍样式，它从没见过 transition:none
+       * 那一帧，照样会把 opacity 0→1 当过渡跑，淡入照旧。 */
+      if (i === 0) {
+        el.style.transition = 'none'
+        el.classList.add('on')
+        void el.offsetWidth
+        el.style.transition = ''
+      } else {
+        void el.offsetWidth               // 强制回流，让过渡真的跑
+        el.classList.add('on')
+      }
+      /* 宽度收到刚好装下文字 —— 必须在 .on 之后、DOM 已布局时量 */
+      if (!el.classList.contains('infocard')) fitBubble(el)
+      while (flow.children.length > MAX_VISIBLE) flow.removeChild(flow.firstChild)
+      /* 表情跟着段落走，气泡弹出的同一拍皮套弹一下 */
+      if (window.PET) {
+        window.PET.set(window.PET.mood(segs[i], i, segs.length))
+        window.PET.react()
+      }
+    }, starts[i] * 1000))
+  })
+
+  /* 从这一刻开始才算正片 —— make.mjs 会把录像头切到这儿 */
+  window.__READY_AT__ = performance.now()
+  window.__READY__ = true
+  const t0 = performance.now()
+  function tick() {
+    const t = (performance.now() - t0) / 1000
+    if (t >= D) { window.__DONE__ = true; timers.forEach(clearTimeout); return }
+    requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }
+
+  /* 气泡宽度贴住文字。
+   * flex 容器默认把子项拉满（968px），「早上八点，那儿 / 是全广工最堵的」
+   * 这种短句右边会空掉将近一半，看着像话没说完。
+   * 做法：量一遍实际排出来的每一行（Range.getClientRects 会按行返回矩形），
+   * 取最长那行，把气泡收到刚好装下 —— 聊天软件都是这个逻辑。
+   * 只在第一次上屏时量一次；宽度定死之后 speaking 切换不会再跳。 */
+  function fitBubble(el) {
+    const txt = el.querySelector('.txt')
+    if (!txt) return
+    const rng = document.createRange()
+    rng.selectNodeContents(txt)
+    const rects = Array.from(rng.getClientRects()).filter(r => r.width > 1)
+    if (!rects.length) return
+    /* 同一行的矩形 top 相同（误差容 4px，避免行高取整把一行拆成两行） */
+    const lines = []
+    for (const r of rects) {
+      const last = lines[lines.length - 1]
+      if (last && Math.abs(last.top - r.top) < 4) {
+        last.right = Math.max(last.right, r.right)
+        last.left = Math.min(last.left, r.left)
+      } else {
+        lines.push({ top: r.top, right: r.right, left: r.left })
+      }
+    }
+    const w = Math.max(...lines.map(l => l.right)) - Math.min(...lines.map(l => l.left))
+    const cs = getComputedStyle(el)
+    const tcs = getComputedStyle(txt)
+    /* 🔴 txt 自己的 padding-right 也要算进气泡内宽 —— 漏了的话设完宽度
+     * 可用空间比最长行还窄，文字会被挤成三行。 */
+    const extra = ['paddingLeft', 'paddingRight', 'borderLeftWidth', 'borderRightWidth']
+      .reduce((a, k) => a + (parseFloat(cs[k]) || 0), 0) +
+      (parseFloat(tcs.paddingLeft) || 0) + (parseFloat(tcs.paddingRight) || 0)
+    el.style.width = Math.ceil(w + extra) + 'px'
+  }
+}
+</script>
+</body>
+</html>
