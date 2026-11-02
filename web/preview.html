@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>实时预览 · 改文案立刻看画面</title>
+<style>
+/* ══════════════════════════════════════════════════════════════
+   实时预览页（2026-11-02）
+   ──────────────────────────────────────────────────────────────
+   为什么要这个页：出一版 90 秒的片子要跑 TTS + 录屏，两分钟起步。
+   调一句口播等两分钟，一天只能试十几次。这一页把「改字 → 看画面」
+   压到几百毫秒：左边编辑，右边 iframe 里的模板页按新数据重渲染，
+   不用 TTS、不用 ffmpeg。
+
+   它预览的是**真模板页**（/tpl/<类型>/index.html），不是另画的仿制品——
+   另画一套的结果是「预览好看，成片不是那个样」。
+
+   动效是模板自带的：点「重播」就从头跑一遍时间轴。
+   ══════════════════════════════════════════════════════════════ */
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0E1116; --panel:#151A21; --line:#242C36; --ink:#E8EDF2;
+  --dim:#8A96A3; --accent:#F5991C; --red:#D2452F; --ok:#3FB950;
+}
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--ink);
+  font-family:"Microsoft YaHei","PingFang SC",sans-serif;
+  display:flex;flex-direction:column;overflow:hidden;
+}
+
+/* ── 顶栏 ── */
+#bar{
+  flex:none;height:56px;display:flex;align-items:center;gap:14px;padding:0 18px;
+  background:var(--panel);border-bottom:1px solid var(--line);
+}
+#bar h1{font-size:15px;font-weight:700;letter-spacing:.3px}
+#bar .sp{flex:1}
+#bar .meta{font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
+#bar .meta b{color:var(--ink);font-weight:700}
+
+button{
+  font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;
+  border:1px solid var(--line);background:#1D242D;color:var(--ink);
+  padding:7px 14px;border-radius:7px;transition:.15s;
+}
+button:hover{background:#273039;border-color:#3A4653}
+button.primary{background:var(--accent);border-color:var(--accent);color:#1A1206}
+button.primary:hover{background:#FFAA3A}
+button.on{background:var(--red);border-color:var(--red);color:#fff}
+
+/* ── 主体：左编辑 / 右预览 ── */
+#main{flex:1;display:flex;min-height:0}
+
+#left{
+  width:430px;flex:none;border-right:1px solid var(--line);
+  display:flex;flex-direction:column;min-height:0;background:#11161C;
+}
+#left .head{
+  flex:none;padding:12px 16px;border-bottom:1px solid var(--line);
+  font-size:12px;color:var(--dim);line-height:1.6;
+}
+#left .head b{color:var(--accent)}
+#list{flex:1;overflow-y:auto;padding:10px 12px}
+
+.seg{
+  display:flex;gap:8px;margin-bottom:8px;align-items:flex-start;
+  background:#161C24;border:1px solid var(--line);border-radius:8px;padding:8px;
+}
+.seg.cur{border-color:var(--accent);background:#1C2229}
+.seg .n{
+  flex:none;width:24px;height:24px;border-radius:6px;background:#232C36;
+  font-size:11px;font-weight:700;color:var(--dim);
+  display:flex;align-items:center;justify-content:center;margin-top:3px;
+  font-variant-numeric:tabular-nums;
+}
+.seg.card .n{background:var(--accent);color:#1A1206}
+.seg .body{flex:1;min-width:0}
+.seg textarea{
+  width:100%;resize:vertical;min-height:38px;
+  background:#0E1319;color:var(--ink);border:1px solid #2A333E;border-radius:6px;
+  padding:7px 9px;font-family:inherit;font-size:13px;line-height:1.55;
+}
+.seg textarea:focus{outline:none;border-color:var(--accent)}
+.seg .cnt{font-size:11px;color:var(--dim);margin-top:4px;font-variant-numeric:tabular-nums}
+.seg .cnt.warn{color:var(--red);font-weight:700}
+.seg .row{display:flex;gap:6px;margin-top:5px}
+.seg .row input{
+  flex:1;min-width:0;background:#0E1319;color:var(--ink);
+  border:1px solid #2A333E;border-radius:5px;padding:5px 8px;
+  font-family:inherit;font-size:12px;
+}
+.seg .row input:focus{outline:none;border-color:var(--accent)}
+.seg .del{
+  flex:none;width:24px;height:24px;padding:0;border-radius:6px;
+  font-size:14px;line-height:1;color:var(--dim);margin-top:3px;
+}
+.seg .del:hover{color:#fff;background:var(--red);border-color:var(--red)}
+
+#right{flex:1;min-width:0;display:flex;flex-direction:column;background:#0A0D11}
+#stage{
+  flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:18px;
+}
+#frameBox{
+  position:relative;background:#000;border:1px solid var(--line);border-radius:6px;
+  overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.55);
+}
+#frame{display:block;border:0;transform-origin:top left}
+#foot{
+  flex:none;padding:9px 18px;border-top:1px solid var(--line);
+  font-size:12px;color:var(--dim);display:flex;gap:16px;align-items:center;
+}
+#foot .k{color:var(--dim)}
+#foot .v{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
+
+/* 保存提示 */
+#toast{
+  position:fixed;left:50%;bottom:70px;transform:translateX(-50%) translateY(12px);
+  background:var(--ok);color:#04120A;font-size:13px;font-weight:700;
+  padding:9px 20px;border-radius:8px;opacity:0;pointer-events:none;transition:.22s;
+}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <h1>实时预览</h1>
+  <span class="meta" id="typeMeta">—</span>
+  <span class="sp"></span>
+  <button id="btnReplay" class="primary">▶ 重播</button>
+  <button id="btnAdd">＋ 加一段</button>
+  <button id="btnSave">存成脚本</button>
+  <button id="btnRaw">看 JSON</button>
+</div>
+
+<div id="main">
+  <div id="left">
+    <div class="head">
+      改左边的字，右边立刻变。动效是<b>真模板</b>自带的，不是仿的。<br>
+      点某一段可以单独重播那一段。
+    </div>
+    <div id="list"></div>
+  </div>
+  <div id="right">
+    <div id="stage">
+      <div id="frameBox"><iframe id="frame" title="预览"></iframe></div>
+    </div>
+    <div id="foot">
+      <span><span class="k">画幅</span> <span class="v" id="fDim">—</span></span>
+      <span><span class="k">段数</span> <span class="v" id="fSegs">0</span></span>
+      <span><span class="k">总字数</span> <span class="v" id="fChars">0</span></span>
+      <span><span class="k">预估</span> <span class="v" id="fDur">0s</span></span>
+      <span class="sp" style="flex:1"></span>
+      <span id="fHint" style="color:var(--dim)"></span>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script type="module">
+/* ──────────────────────────────────────────────────────────────
+   数据流：
+     /video/preview-kit → { type, pet, script }
+     script.segments → 编辑框
+     编辑框 → postMessage → iframe 里重跑 window.__DIARY__ / __CARDA__
+
+   模板页的入口是 window.__DIARY__（diary/talk 共用）或 window.__CARDA__（card）。
+   两条都试，因为模板是按类型分开写的，不能假定只有一个名字。
+   ────────────────────────────────────────────────────────────── */
+
+const $ = (s) => document.querySelector(s)
+const listEl = $('#list')
+const frame = $('#frame')
+const frameBox = $('#frameBox')
+
+let KIT = null          // { type, pet, script }
+let SEGS = []           // [{text} | {card:{title,big,small}}]
+let DAY = 1
+let TITLE = '日记'
+
+/* 类型从 URL 拿：/preview.html?type=talk&script=_script_day0.json */
+const Q = new URLSearchParams(location.search)
+const TYPE = Q.get('type') || 'talk'
+const SCRIPT = Q.get('script') || ''
+
+const esc = (s) => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+/* ── 启动 ── */
+async function boot() {
+  const url = `/video/preview-kit?type=${encodeURIComponent(TYPE)}` +
+    (SCRIPT ? `&script=${encodeURIComponent(SCRIPT)}` : '')
+  const r = await fetch(url).then(x => x.json()).catch(() => null)
+  if (!r || !r.ok) {
+    listEl.innerHTML = '<div style="color:#D2452F;padding:16px">拿不到预览数据，检查控制台日志。</div>'
+    return
+  }
+  KIT = r
+  const t = r.type
+  $('#typeMeta').textContent = `${t.name} · ${t.width}×${t.height}`
+  $('#fDim').textContent = `${t.width}×${t.height}`
+
+  if (r.script) {
+    DAY = Number(r.script.day) || 1
+    TITLE = r.script.journalTitle || '日记'
+    SEGS = (r.script.segments || []).map(s => s.card ? { card: { ...s.card } } : { text: s.text || '' })
+  }
+  if (!SEGS.length) {
+    SEGS = [{ text: '第一句口播写这里' }, { text: '第二句' }]
+  }
+
+  fitFrame()
+  renderList()
+  await mountFrame()
+}
+
+/* ── 预览画框按窗口缩放（模板是 1920×1080 固定尺寸）── */
+function fitFrame() {
+  if (!KIT) return
+  const t = KIT.type
+  const box = $('#stage').getBoundingClientRect()
+  const pad = 36
+  const s = Math.min((box.width - pad) / t.width, (box.height - pad) / t.height, 1)
+  frame.style.width = t.width + 'px'
+  frame.style.height = t.height + 'px'
+  frame.style.transform = `scale(${s})`
+  frameBox.style.width = Math.round(t.width * s) + 'px'
+  frameBox.style.height = Math.round(t.height * s) + 'px'
+}
+window.addEventListener('resize', fitFrame)
+
+/* ── 左边：编辑列表 ── */
+function renderList() {
+  listEl.innerHTML = ''
+  SEGS.forEach((s, i) => {
+    const isCard = Boolean(s.card)
+    const el = document.createElement('div')
+    el.className = 'seg' + (isCard ? ' card' : '')
+    el.dataset.i = i
+
+    const body = isCard
+      ? `<div class="row">
+           <input data-k="title" placeholder="卡标题" value="${esc(s.card.title)}">
+           <input data-k="big" placeholder="大数字" value="${esc(s.card.big)}">
+         </div>
+         <div class="row">
+           <input data-k="small" placeholder="小字说明" value="${esc(s.card.small)}">
+         </div>
+         <div class="cnt">信息卡</div>`
+      : `<textarea data-k="text" rows="2">${esc(s.text)}</textarea>
+         <div class="cnt"></div>`
+
+    el.innerHTML = `<span class="n">${i + 1}</span>
+      <div class="body">${body}</div>
+      <button class="del" title="删掉这段">×</button>`
+
+    /* 输入即预览：不防抖，模板重渲染一次只要几十毫秒 */
+    el.querySelectorAll('[data-k]').forEach(inp => {
+      inp.addEventListener('input', () => {
+        const k = inp.dataset.k
+        if (isCard) s.card[k] = inp.value
+        else s.text = inp.value
+        updateCount(el, s)
+        updateFoot()
+        push()
+      })
+      inp.addEventListener('focus', () => highlight(i))
+    })
+
+    el.querySelector('.del').addEventListener('click', (e) => {
+      e.stopPropagation()
+      SEGS.splice(i, 1)
+      renderList(); updateFoot(); push()
+    })
+
+    el.addEventListener('click', () => highlight(i))
+    listEl.appendChild(el)
+    updateCount(el, s)
+  })
+  updateFoot()
+}
+
+function updateCount(el, s) {
+  const c = el.querySelector('.cnt')
+  if (!c) return
+  if (s.card) { c.textContent = '信息卡'; return }
+  const n = (s.text || '').length
+  /* talk 模板单段目标 18~30 字（types.mjs 的 segChars）；超了提示一下 */
+  const [lo, hi] = (KIT && KIT.type.segChars) || [18, 30]
+  c.textContent = `${n} 字`
+  c.classList.toggle('warn', n > hi)
+}
+
+function updateFoot() {
+  const talk = SEGS.filter(s => !s.card)
+  const chars = talk.reduce((a, s) => a + (s.text || '').length, 0)
+  $('#fSegs').textContent = SEGS.length
+  $('#fChars').textContent = chars
+  /* 中文 TTS ≈ 4 字/秒 */
+  $('#fDur').textContent = Math.round(chars / 4) + 's'
+}
+
+function highlight(i) {
+  listEl.querySelectorAll('.seg').forEach(el => {
+    el.classList.toggle('cur', Number(el.dataset.i) === i)
+  })
+}
+
+/* ── 右边：把数据塞进 iframe 重渲染 ── */
+function payload() {
+  const t = KIT.type
+  /* 时长按字数估：模板要用它跑时间轴。多给 0.8s 的尾巴，和 make.mjs 一致 */
+  const chars = SEGS.filter(s => !s.card).reduce((a, s) => a + (s.text || '').length, 0)
+  const dur = Math.max(6, chars / 4 + 0.8)
+  return {
+    day: DAY,
+    journalTitle: TITLE,
+    segments: SEGS,
+    pet: KIT.pet,
+    dur,
+  }
+}
+
+let mountTimer = null
+function push() {
+  clearTimeout(mountTimer)
+  mountTimer = setTimeout(mountFrame, 90)
+}
+
+async function mountFrame() {
+  if (!KIT) return
+  const t = KIT.type
+  const src = `/tpl/${t.id}/index.html?t=${Date.now()}`
+  await new Promise((resolve) => {
+    frame.onload = () => resolve()
+    frame.src = src
+  })
+  /* 模板的入口函数在 iframe 自己的 window 上，直接调 */
+  const w = frame.contentWindow
+  const fn = w.__DIARY__ || w.__CARDA__
+  if (!fn) {
+    $('#fHint').textContent = '模板没暴露 __DIARY__ / __CARDA__'
+    return
+  }
+  $('#fHint').textContent = ''
+  try { await fn(payload()) } catch (e) { $('#fHint').textContent = String(e).slice(0, 80) }
+}
+
+/* ── 顶栏按钮 ── */
+$('#btnReplay').addEventListener('click', () => mountFrame())
+
+$('#btnAdd').addEventListener('click', () => {
+  SEGS.push({ text: '' })
+  renderList(); push()
+  listEl.scrollTop = listEl.scrollHeight
+})
+
+$('#btnRaw').addEventListener('click', () => {
+  const j = JSON.stringify({ day: DAY, journalTitle: TITLE, segments: SEGS }, null, 2)
+  const w = window.open('', '_blank')
+  w.document.write(`<pre style="font:13px/1.6 Consolas,monospace;padding:20px;white-space:pre-wrap">${esc(j)}</pre>`)
+})
+
+$('#btnSave').addEventListener('click', async () => {
+  /* 存成 video/scripts/_preview_<ts>.json，方便直接喂 make.mjs。
+   * 走控制台已有的写接口，不新开一条 —— 预览页不该有自己的落盘逻辑。 */
+  const name = prompt('脚本文件名（存到 video/scripts/）', '_preview.json')
+  if (!name) return
+  const body = {
+    day: DAY, journalTitle: TITLE, title: TITLE,
+    coverText: TITLE, desc: '', tags: [],
+    segments: SEGS,
+  }
+  const r = await fetch('/video/script/save', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name, script: body }),
+  }).then(x => x.json()).catch(() => null)
+  toast(r && r.ok ? '已存 ' + name : '存失败：' + (r && r.error || '接口没接'))
+})
+
+function toast(msg) {
+  const el = $('#toast')
+  el.textContent = msg
+  el.classList.add('on')
+  setTimeout(() => el.classList.remove('on'), 1800)
+}
+
+boot()
+</script>
+</body>
+</html>

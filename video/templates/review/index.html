@@ -79,6 +79,58 @@ body{
    切换时由 JS 把 transform 重置回 1。 */
 #shot.push{transform:scale(1.04)}
 
+
+/* ── 开篇报幕（opener）───────────────────────────────────────
+   为什么单开一镜：封面停 0.85s，够看到"有东西在动"，不够知道
+   "这是什么"。直接进"八天五千星"是先给结论、后给题目 ——
+   观众到第三句才明白在讲一个 GitHub 项目，前五秒等于白看。
+
+   这一镜只干三件事：报期号（01）、报项目名、报一句话定位。
+   🔴 图**不藏**，压暗当背景：藏了的话封面转场刚送进画框的图会
+   凭空消失，画框空 0.2 秒，读作"卡了一下"。留着它，转场才是无缝的。 */
+#opener{position:absolute;inset:0;z-index:3;padding:0 96px;
+  display:flex;align-items:center;visibility:hidden}
+#opener.on{visibility:visible}
+/* 🔴 遮罩必须 .98 以上。底图是 GitHub 的白底页面，.9 的遮罩算下来
+   背景还有 #262626、字还有 #2E2E2E，对比度 8 级 —— 照样能读出来。
+   读得出来就会被读，观众的眼会往背景跑。.99 还不够 —— 实测仓库页的
+   文件名在 .988 下仍然能辨认，要到 .995 才只剩"有个界面"的轮廓。 */
+#opener .oveil{position:absolute;inset:0;z-index:0;
+  background:linear-gradient(102deg,rgba(14,17,22,.995) 0%,rgba(14,17,22,.988) 42%,rgba(14,17,22,.968) 100%)}
+#opener .obody{position:relative;z-index:1;max-width:1140px}
+
+/* 期号行：01 + 一条横线 + 眉题。横线是"分隔"不是装饰 ——
+   没有它，01 和后面的字会连读成一句话。 */
+#opener .orow{display:flex;align-items:center;gap:26px;
+  opacity:0;transform:translateY(-10px)}
+#opener .ono{font-size:112px;font-weight:900;line-height:1;color:#D2452F;
+  letter-spacing:-4px;font-variant-numeric:tabular-nums}
+#opener .oline{width:84px;height:2px;background:rgba(245,241,234,.26);flex:none}
+#opener .okick{font-size:56px;font-weight:700;color:rgba(245,241,234,.66);
+  letter-spacing:2px}
+#opener.on .orow{opacity:1;transform:none;
+  transition:opacity .26s ease-out .04s,transform .36s cubic-bezier(.22,1,.36,1) .04s}
+
+/* 项目名：全片最大的字，报幕镜的唯一主角。
+   🔴 别再往上加：212px 时它会把背景里 GitHub 页的 "dsh-go" 标题
+   顶成第二层字，两串 dsh-Go 叠着，读作"重影"。180px 是压得住
+   又不打架的上限。 */
+#opener .oname{font-size:244px;font-weight:900;line-height:1;letter-spacing:-9px;
+  color:#F5F1EA;margin-top:18px;opacity:0;transform:translateY(28px)}
+#opener.on .oname{opacity:1;transform:none;
+  transition:opacity .3s ease-out .1s,transform .5s cubic-bezier(.22,1,.36,1) .1s}
+
+/* 朱红短线：把项目名和定位句分开，同时是这一镜唯一的"记号" */
+#opener .orule{width:0;height:7px;border-radius:4px;background:#D2452F;
+  margin:26px 0 24px}
+#opener.on .orule{width:230px;
+  transition:width .38s cubic-bezier(.25,.85,.35,1) .26s}
+
+#opener .otag{font-size:52px;font-weight:800;color:#FF8B70;letter-spacing:.4px;
+  opacity:0;transform:translateY(14px)}
+#opener.on .otag{opacity:1;transform:none;
+  transition:opacity .28s ease-out .32s,transform .4s cubic-bezier(.22,1,.36,1) .32s}
+
 /* ── 纯排版层：某些镜头没有截图可放 ─────────────────────────
    「以前得装 Termux、折腾 root」这种事没有截图能证明 ——
    编一张假的终端图反而更假。所以留一个排版层：把旧方案的字
@@ -616,6 +668,20 @@ body{
 <div id="frame">
   <div id="win">
     <div id="shotIn"><img id="shot" alt=""></div>
+    <!-- 开篇报幕：转场落地的第一镜。图压暗当背景，字压在上面 -->
+    <div id="opener">
+      <div class="oveil"></div>
+      <div class="obody">
+        <div class="orow">
+          <span class="ono" id="opNo">01</span>
+          <span class="oline"></span>
+          <span class="okick" id="opKick">分享一个开源项目</span>
+        </div>
+        <div class="oname" id="opName"></div>
+        <div class="orule"></div>
+        <div class="otag" id="opTag"></div>
+      </div>
+    </div>
     <div id="typebox"></div>
   </div>
   <div id="plate">
@@ -827,13 +893,13 @@ window.__REVIEW__ = async function (d) {
        尺寸是"镜序"的函数，所以写在 JS 里跟着分镜走，不散进样式表。
        🔴 别调大：鱼是签名不是主体，超过 210 就会盖住截图里的手机。 */
     const petEl = document.getElementById('pet')
-    const petW = s.petW || [205, 175, 170, 165, 170][Math.min(i, 4)] || 170
+    const petW = s.petW || [232, 175, 170, 165, 170, 165][Math.min(i, 5)] || 170
     petEl.style.setProperty('--petw', petW + 'px')
 
     /* 排版镜把鱼挪到右下（左下是正文），其余镜留在左下角。
        剖面镜（core）也算：左边就是手机，鱼摆左下会挡住屏幕。 */
     const isTypeShot = !!s.win
-    const petRight = isTypeShot || !!s.core
+    const petRight = isTypeShot || !!s.core || !!s.open
     petEl.classList.toggle('petR', petRight)
     typebox.classList.toggle('petr', isTypeShot)
 
@@ -843,6 +909,45 @@ window.__REVIEW__ = async function (d) {
 
     const coreEl = document.getElementById('core')
     const finEl = document.getElementById('finale')
+    const openEl = document.getElementById('opener')
+
+    /* 顶栏跟着镜走：报幕镜自己有一个 96px 的 01，顶栏再挂一个 56px 的
+       01，同一屏两个期号，观众会以为其中一个是页码。报幕镜里只留一个。 */
+    topbar.style.transition = 'opacity .22s ease-out'
+    topbar.style.opacity = s.open ? '0' : '1'
+
+
+    if (s.open) {
+      /* 开篇报幕：图**保留**（压暗当背景），只把文字层填上。
+         full 必须手动设 —— 这一镜没有 key 也没有 big，走不到
+         函数末尾那次 toggle，而 #win 停在 1300 宽的话，右边会空出
+         500px 的黑块，读作"没做完"。 */
+      typebox.className = ''
+      typebox.innerHTML = ''
+      duo.className = ''
+      coreEl.className = ''
+      finEl.className = ''
+      frame.classList.add('full')
+      img.style.display = 'block'
+      shotIn.style.display = 'block'
+      if (s.img) {
+        img.src = s.img
+        img.style.objectPosition = s.pos || '50% 0%'
+      }
+      /* 重起推镜：和普通图镜同一套。少了这次回流，从第二镜起画面是静的 */
+      img.style.transition = 'none'
+      img.classList.remove('push')
+      void img.offsetWidth
+      img.style.transition = ''
+      img.classList.add('push')
+      document.getElementById('opNo').textContent = s.open.no || '01'
+      document.getElementById('opKick').textContent = s.open.kick || '分享一个开源项目'
+      document.getElementById('opName').textContent = s.open.name || ''
+      document.getElementById('opTag').textContent = s.open.tag || ''
+      sub.innerHTML = renderSub(s.text)
+      return
+    }
+    openEl.classList.remove('on')
 
     if (s.core) {
       /* 镜 3 剖面：左手机 + 右三层 */
@@ -1139,6 +1244,18 @@ window.__REVIEW__ = async function (d) {
   function enter(skipShotIn) {
     const s = shots[cur] || {}
 
+    /* ⓪ 开篇报幕：整层点亮。opener 是 visibility:hidden 的常驻盒子，
+       盒子一直在，挂 .on 时过渡会正常启动。 */
+    if (s.open) {
+      const o = document.getElementById('opener')
+      o.classList.remove('on')
+      void o.offsetWidth
+      o.classList.add('on')
+      sub.classList.remove('on')
+      setTimeout(() => sub.classList.add('on'), 60)
+      return
+    }
+
     /* ⓪ 剖面镜 / 收尾镜：各自整层点亮。都是 visibility:hidden 的常驻盒子，
        盒子一直在，所以挂 .on 时过渡会正常启动。 */
     if (s.core) {
@@ -1348,7 +1465,10 @@ window.__REVIEW__ = async function (d) {
     /* 拍 4（0.74 ~ 1.10）：内容接力。说明牌推入 + 顶栏底栏淡入。
        🔴 这一步不能省：图落定了画面却是静的，观众会以为片子卡了。 */
     tl.add(() => { plate.classList.add('pushin') }, .64)
-    tl.to(topbar, { opacity: 1, duration: .18 }, .66)
+    /* 顶栏：第一镜是报幕镜的话就不点亮 —— 它会自己出一个 96px 的 01，
+       顶栏再来一个就是两个期号。apply() 里也管着这件事，这里必须
+       一起改：转场是最后写 style 的一方，只改 apply 会被它覆盖回去。 */
+    tl.to(topbar, { opacity: (shots[0] && shots[0].open) ? 0 : 1, duration: .18 }, .66)
     tl.to(foot, { opacity: 1, duration: .18 }, .70)
 
     /* 不等整条时间轴跑完：图在 0.72 就落定了，剩下的顶栏/底栏淡入

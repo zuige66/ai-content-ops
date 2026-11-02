@@ -338,6 +338,17 @@ export async function makeVideo(job, { step }) {
             } : null,
             /* 大肥鱼尺寸（px）。不给就用模板里的默认递减序列。 */
             petW: Number(s.petW) || 0,
+            /* 开篇报幕版式：期号 + 眉题 + 项目名 + 一句话定位。
+             * 🔴 这个字段漏掉的后果最隐蔽：模板里 s.open 恒为 undefined，
+             * 整镜退化成「压暗的仓库页 + 一行字幕」，画框里一个字都没有，
+             * 而且不报错、日志里也看不出来 —— 只能拼帧才看得见。
+             * 凡是模板新增的版式字段，这里都得跟着加一条。 */
+            open: s.open ? {
+              no: String(s.open.no || '01').slice(0, 3),
+              kick: String(s.open.kick || '').slice(0, 14),
+              name: String(s.open.name || '').slice(0, 16),
+              tag: String(s.open.tag || '').slice(0, 34),
+            } : null,
             /* 镜 3 剖面版式：左手机 + 右三层。
              * 这一镜要回答截图答不了的问题 ——「手机里到底装了什么」，
              * 所以必须给 layers，只给一张图会退化成又一个"截图 + 右牌"。 */

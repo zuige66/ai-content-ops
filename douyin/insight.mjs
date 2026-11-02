@@ -178,6 +178,7 @@ export async function refreshAll() {
     ['profile', () => profile({ force: true })],
     ['works', () => works({ limit: 20, force: true })],
     ['live', () => live({ force: true })],
+    ['income', () => income({ force: true })],
   ]
   for (const [name, run] of steps) {
     try {
@@ -409,11 +410,82 @@ export async function live({ days = 90, limit = 50, force = false } = {}) {
       newFollow: Number(s.liveNewFollowUcnt) || 0,
       durationText: s.liveDurationWithoutPause || '',
       cover: s.coverUri || '',
+      /* 🔴 本场音浪。2026-11-02 补：接口一直有这个字段（roomLiveEarnScore），
+       *    以前只取观看/点赞，把收入漏了。单位是**音浪**，不是元。
+       *    换人民币口径见 zhibo/cache/gift-price.json 的注释：20 音浪 = 1 元（主播到手）。 */
+      earnScore: Number(s.roomLiveEarnScore) || 0,
     }))
     const onAir = series.find(s => String(s.playStatus) === '2') || null
-    return { ok: true, onAir, sessions: series }
+    /* 26 场的音浪总和 —— 视频里讲「赚了多少」直接取这个，别再手算 */
+    const totalEarn = series.reduce((a, s) => a + s.earnScore, 0)
+    return { ok: true, onAir, sessions: series, totalEarn }
   }, { force })
   return { ...v, cachedAt: at }
 }
+
+/* ── 收入总览：创作者后台「收入变现」页的账 ──
+ *
+ * 两个接口一起取，缺一个也能出数：
+ *   income/category/summary  → 分品类（直播 webcast）的今日/昨日/7日/30日收益
+ *   mission/user_summary     → 历史累计收益 history_total_income + 余额 total_balance
+ *
+ * 🔴 单位全是**音浪/抖币**，不是人民币。换算口径 20 音浪 = 1 元（主播到手价，
+ *    平台已抽成），校准依据见 zhibo/docs/2026-10-30-白饭.md。
+ * 🔴 抖音侧收益「每天 12 点前更新昨日数据」，所以今天播的今晚看不到，
+ *    要报「现在赚了多少」只能用直播间实时的 roomLiveEarnScore（见 live()）。
+ */
+export async function income({ force = false } = {}) {
+  const { at, v } = await cached('income', async () => {
+    const base = `aid=2906&app_name=aweme_creator_platform&device_platform=web`
+    const [sum, mis] = await Promise.all([
+      jget(`${CREATOR}/aweme/v1/creator/income/category/summary/?${base}`),
+      jget(`${CREATOR}/aweme/v1/creator/mission/user_summary/?${base}`),
+    ])
+    const a = sum.json, b = mis.json
+    if (!a && !b) {
+      return { ok: false, error: sum.error || mis.error || '收入接口都拿不到（登录态可能失效）' }
+    }
+
+    /** 从 dayN_income_summary 里挑「直播」这一项 */
+    const pickLive = (block) => {
+      const list = (block && block.category_list) || []
+      const web = list.find(x => x && x.category_id === 'webcast') || list[0] || {}
+      return {
+        today: Number(web.today_total_income) || 0,
+        yesterday: Number(web.yesterday_total_income) || 0,
+        history: Number(block && block.history_total_income) || 0,
+        updateDesc: web.data_update_desc || '',
+      }
+    }
+
+    const d1 = pickLive(a && a.day1_income_summary)
+    const d7 = pickLive(a && a.day7_income_summary)
+    const d30 = pickLive(a && a.day30_income_summary)
+
+    return {
+      ok: true,
+      /* 音浪 */
+      earnScore: {
+        today: Number(a && a.today_total_income) || d1.today || 0,
+        yesterday: d1.yesterday,
+        day7: d7.history,
+        day30: d30.history,
+        /* 历史累计：两个接口都有，优先 category/summary 的，缺了退 mission 的 */
+        total: (b && b.income_summary && Number(b.income_summary.history_total_income))
+          || d30.history || d1.history || 0,
+        updateDesc: d1.updateDesc || '每天12点前更新昨日收益',
+      },
+      /* 抖币 */
+      balance: Number((b && b.total_balance) ?? (a && a.total_balance)) || 0,
+      /* 人民币参考值（20 音浪 = 1 元，主播到手价） */
+      yuan: r2(((b && b.income_summary && Number(b.income_summary.history_total_income))
+        || d30.history || d1.history || 0) / 20),
+    }
+  }, { force })
+  return { ...v, cachedAt: at }
+}
+
+/** 保留两位小数，避免 147.75000000000003 这种浮点尾巴进画面 */
+function r2(n) { return Math.round((Number(n) || 0) * 100) / 100 }
 
 export const _internal = { resolveItem }

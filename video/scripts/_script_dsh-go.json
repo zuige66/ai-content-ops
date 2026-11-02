@@ -4,7 +4,7 @@
   "repo": "github.com/ccch1mneyyy/dsh-Go",
   "title": "安卓手机能跑 Ubuntu，八天五千三百星",
   "coverText": "dsh-Go|八天五千星",
-  "desc": "安卓手机能跑 Ubuntu 了，八天五千三百星。dsh-Go 把 DeepSeek 的编程 agent 装进安卓，自带 Ubuntu 和 Node，不用 root 不用 Termux，还能 SSH 连回电脑接着写。缺点：只有安卓，iPhone 再等等。转给那个天天背电脑通勤的同事。",
+  "desc": "分享一个开源项目 dsh-Go：安卓手机能跑 Ubuntu，八天五千三百星。它把 DeepSeek 的编程 agent 装进安卓，自带 Ubuntu 和 Node，不用 root 不用 Termux，还能 SSH 连回电脑接着写。缺点：只有安卓，iPhone 再等等。转给那个天天背电脑通勤的同事。",
   "tags": [
     "GitHub",
     "开源",
@@ -12,8 +12,20 @@
     "DeepSeek",
     "安卓"
   ],
-  "_note": "由 video/plans/github-picks-01-dsh-go.md 派生。改口播改策划，别直接改这里——两边不一致时以策划为准。数字（5.3k / 8 天 / AGPL-3.0 / Android 8+）取自 GitHub API 实查，2026-11-02。",
+  "_note": "由 video/plans/github-picks-01-dsh-go.md 派生。改口播改策划，别直接改这里——两边不一致时以策划为准。数字（5.3k / 8 天 / AGPL-3.0 / Android 8+）取自 GitHub API 实查，2026-11-02。镜 1 是开篇报幕（open 版式）：报期号 + 项目名 + 一句话定位，回答「这是什么东西」，后面的镜才讲「凭什么」。",
   "shots": [
+    {
+      "img": "video/assets/dsh-go/repo.png",
+      "pos": "50% 58%",
+      "open": {
+        "no": "01",
+        "kick": "分享一个开源项目",
+        "name": "dsh-Go",
+        "tag": "安卓手机上跑 Ubuntu 和 Node"
+      },
+      "key": "",
+      "text": "先分享一个开源项目，**dsh-Go**。安卓手机上就能跑。"
+    },
     {
       "img": "video/assets/dsh-go/02-f-remote-zh-light.webp",
       "pos": "50% 34%",
@@ -21,7 +33,7 @@
       "big": "5.3k",
       "small": "八天",
       "key": "",
-      "text": "安卓手机能跑 Ubuntu，**八天五千三百星**。"
+      "text": "上线**八天**，已经**五千三百星**。"
     },
     {
       "win": {

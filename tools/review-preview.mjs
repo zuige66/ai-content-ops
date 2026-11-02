@@ -121,10 +121,20 @@ await page.goto('file:///' + TPL.replace(/\\/g, '/'))
 await page.evaluate((d) => window.__REVIEW__(d), data)
 await page.waitForFunction(() => window.__READY__ === true, null, { timeout: 15000 })
 
-/* 每镜中间取一帧：镜头刚开始的那 0.3 秒还在入场，截出来是半透明的 */
-const shotAt = data.starts.map((t, i) => {
-  const next = data.starts[i + 1] ?? data.dur
-  return Math.max(2.0, t + Math.min(1.6, (next - t) * 0.45))
+/* 每镜中间取一帧：镜头刚开始的那 0.3 秒还在入场，截出来是半透明的。
+   🔴 starts 长度必须和镜数一致。脚本 JSON 一般不带 starts（那是出片时
+   由 TTS 实际时长算出来的），拿样例的 5 个去 map 6 个镜会少截一帧，
+   而且 f5 会截到第 5 镜 —— 看图的人不会发现，只是"最后一镜没验"。 */
+const starts = (Array.isArray(data.starts) && data.starts.length === data.shots.length)
+  ? data.starts
+  : data.shots.map((_, i) => i * (Number(data.dur) || 32) / data.shots.length)
+const shotAt = starts.map((t, i) => {
+  const next = starts[i + 1] ?? (Number(data.dur) || 32)
+  /* 第一镜是报幕镜的话，前面还压着 0.85s 封面 hold + 0.7s 转场，
+     它的字要到 2.3s 才全部到位 —— 按 2.0s 截会截到"只有两行字"的
+     半成品，看着像版式缺了一块，其实是截早了。 */
+  const floor = (data.shots[i] && data.shots[i].open) ? 2.6 : 2.0
+  return Math.max(floor, t + Math.min(1.6, (next - t) * 0.45))
 })
 /* 转场三帧：封面站住 / 拆到一半 / 刚落地 */
 const introAt = data.cover ? [0.06, 1.12, 1.72] : []

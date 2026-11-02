@@ -26,6 +26,20 @@ export function brokenUntil(platform) {
 }
 
 /** 写操作总闸。checkAlive() 返回 {ok, why}；write() 干活。任何一步掉号 → 熔断到当天结束。 */
+/* 「浏览器/页面没了」和「账号掉线」是两件事，绝不能混。
+ *
+ * 🔴 实测踩到（2026-11-02）：B站 dry-run 跑到一半，Playwright 的 context 被
+ *    关掉了（服务重启 / 复用了一个正在关闭的浏览器），checkAlive 抛
+ *    `page.evaluate: Target page, context or browser has been closed`。
+ *    breaker 把它当成「写前体检不通过」→ trip() → **熔断到当天 23:59**，
+ *    于是一整天所有 B站写操作全废，而账号其实好好的。
+ *
+ *    这类错误的正确归类是 soft：环境问题，重开浏览器就好，不涉及账号安全。
+ *    真正该熔断的只有一种 —— cookie 在、但平台接口明确不认（会话被写注销）。 */
+const ENV_ERR_RE = /Target page, context or browser has been closed|has been closed|browser has disconnected|Protocol error|Target closed|Session closed|ECONNREFUSED|socket hang up/i
+
+const isEnvError = (why) => ENV_ERR_RE.test(String(why || ''))
+
 export async function guardedWrite(platform, { checkAlive, write, verify }) {
   if (isBroken(platform)) {
     throw new Error(`${platform} 已熔断（今天 ${new Date(brokenUntil(platform)).toLocaleTimeString('zh-CN')} 前拒绝一切写操作）`)
@@ -35,6 +49,11 @@ export async function guardedWrite(platform, { checkAlive, write, verify }) {
     // 「没登录」和「掉号」要分开：没登录只是不干活（soft），不熔断；
     // 有 cookie 但接口不认 = 会话被平台写注销了，那才是要熔断的事故。
     if (alive.soft) throw new Error(`${platform} 未登录：${alive.why}（先扫码登录，不触发熔断）`)
+    /* 环境类错误（浏览器被关）不是掉号，重开浏览器重试即可，别熔断整天 */
+    if (isEnvError(alive.why)) {
+      logEvent(platform, 'breaker.envError', { ok: false, why: String(alive.why).slice(0, 160) })
+      throw new Error(`${platform} 浏览器/页面没了（不是掉号，不熔断）：${alive.why}`)
+    }
     trip(platform, `写前体检不通过：${alive.why}`)
     throw new Error(`写前体检不通过：${alive.why}`)
   }
@@ -51,6 +70,10 @@ export async function guardedWrite(platform, { checkAlive, write, verify }) {
   const after = verify ? await verify() : { ok: true }
   if (!after.ok) {
     if (after.soft) throw new Error(`写后检查：${after.why}（会话没了，但没有 cookie 可言，不判掉号）`)
+    if (isEnvError(after.why)) {
+      logEvent(platform, 'breaker.envError', { ok: false, phase: 'verify', why: String(after.why).slice(0, 160) })
+      throw new Error(`${platform} 写后复检时浏览器没了（不是掉号，不熔断）：${after.why}`)
+    }
     trip(platform, `写后复检掉号：${after.why}`)
     throw new Error(`写后复检掉号：${after.why}`)
   }

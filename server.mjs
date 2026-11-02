@@ -39,8 +39,10 @@ import { makeCover } from './video/cover.mjs'
 import { generateScript } from './video/script.mjs'
 import { runPipeline } from './video/pipeline.mjs'
 import { listTypes, getType } from './video/types.mjs'
+import { petPayload } from './video/pet-assets.mjs'
 import { listLibrary } from './video/library.mjs'
 import { listPlans, readPlan, setPlanStatus, planStock, checkPlanGate } from './video/plans.mjs'
+import { findCandidates, draftPlan, nextEpisode } from './video/discover.mjs'
 import { gc as videoGc } from './video/gc.mjs'
 import { MANIFEST } from './core/agent-api.mjs'
 import * as douyinSession from './douyin/session.mjs'
@@ -245,7 +247,37 @@ const STATIC_MOUNTS = [
   ['/styles/', path.join(WEB, 'styles')],
   ['/vendor/', path.join(WEB, 'vendor')],
   ['/media/', OUT],
+  /* 视频模板目录（2026-11-02）：预览页要把 templates/<类型>/index.html 装进 iframe，
+   * 模板里的 pet.js / bg.png 都是相对路径，所以必须按目录原样挂，不能只发单个 html。 */
+  ['/tpl/', path.join(DIR, 'video', 'templates')],
+  /* 皮套素材（2026-11-02）：在 zhibo 项目里，不在本仓库。
+   * http 预览页 load file:// 会被浏览器拦，所以开一条只读通道过去。 */
+  ['/petasset/', path.join('D:\\Workplace\\zhibo', 'assets')],
 ]
+
+/* 皮套 payload 的 http 版：把 file:///D:/... 换成 /petasset/...
+ * 素材在 D:\Workplace\zhibo\assets 下，所以相对 assets 取路径即可。
+ * 素材不在（换了机器）就原样返回，模板会退回静图，不至于整页挂掉。 */
+const PET_ASSET_ROOT = 'D:\\Workplace\\zhibo\\assets'
+function petPayloadForHttp(cfg) {
+  const raw = petPayload(cfg)
+  const toHttp = (v) => {
+    if (typeof v !== 'string' || !v) return v
+    /* fileUrl() 出来是 file:///D:/Workplace/zhibo/assets/xxx */
+    const norm = v.replace(/^file:\/\/\//, '').replace(/\//g, '\\')
+    const root = PET_ASSET_ROOT.toLowerCase()
+    if (norm.toLowerCase().startsWith(root)) {
+      return '/petasset/' + norm.slice(PET_ASSET_ROOT.length).replace(/\\/g, '/').replace(/^\/+/, '')
+    }
+    return v
+  }
+  const out = { ...raw }
+  out.anim = toHttp(raw.anim)
+  out.still = toHttp(raw.still)
+  out.faces = {}
+  for (const [k, v] of Object.entries(raw.faces || {})) out.faces[k] = toHttp(v)
+  return out
+}
 
 const json = (res, code, obj) => {
   const body = JSON.stringify(obj)
@@ -324,6 +356,14 @@ function sendFile(req, res, base, rel, cache = 'no-cache') {
 function serveStatic(req, res, pathname) {
   if (pathname === '/' || pathname === '/index.html') {
     return sendFile(req, res, WEB, 'index.html')
+  }
+  /* web/ 根目录下的独立页面（2026-11-02 加 preview.html）。
+   * 🔴 只放行白名单里的文件名，不能按 pathname 直发 web/ ——
+   *    那样 web/ 下任何文件都能被访问到。 */
+  const PAGE_WHITELIST = new Set(['preview.html'])
+  const page = pathname.replace(/^\//, '')
+  if (PAGE_WHITELIST.has(page)) {
+    return sendFile(req, res, WEB, page)
   }
   const mount = STATIC_MOUNTS.find(([pre]) => pathname.startsWith(pre))
   if (!mount) return false
@@ -555,6 +595,13 @@ const server = http.createServer(async (req, res) => {
       })
       return json(res, r.ok ? 200 : 502, r)
     }
+    /* ── 直播收入（音浪）。2026-11-02 新增。
+     *  单位是音浪/抖币，不是人民币；20 音浪 = 1 元（主播到手价）。
+     *  抖音侧「每天 12 点前更新昨日收益」，所以今天的数要看直播间实时。 */
+    if (req.method === 'GET' && p === '/douyin/income') {
+      const r = await douyinInsight.income({ force: u.searchParams.get('force') === '1' })
+      return json(res, r.ok ? 200 : 502, r)
+    }
     /* 某条评论下面已有的回复（含我回过的）。
      * 自动回复脚本靠它判断「这条我是不是已经回过」，比只看 replyCount 准 ——
      * replyCount>0 可能是别人回的，盲目跳过会漏回一堆。 */
@@ -618,6 +665,58 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, types: listTypes() })
     }
 
+    /* ── 预览页存脚本（2026-11-02）───────────────────────────────
+     * 预览页改完文案直接落成 video/scripts/<name>.json，就能喂 make.mjs。
+     * 🔴 只写 video/scripts/，文件名走 basename —— 预览页是浏览器页面，
+     *    不能让它决定写到哪儿去。 */
+    if (p === '/video/script/save' && req.method === 'POST') {
+      const body = await readBody(req)
+      const name = path.basename(String(body.name || '').trim())
+      if (!name || !name.endsWith('.json')) {
+        return json(res, 400, { ok: false, error: '文件名要以 .json 结尾' })
+      }
+      if (!body.script || !Array.isArray(body.script.segments)) {
+        return json(res, 400, { ok: false, error: 'script.segments 必须是数组' })
+      }
+      const dir = path.join(DIR, 'video', 'scripts')
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, name), JSON.stringify(body.script, null, 2), 'utf8')
+      return json(res, 200, { ok: true, file: `video/scripts/${name}` })
+    }
+
+    /* ── 实时预览页的数据（2026-11-02）─────────────────────────────
+     * 预览页 /preview.html 把 templates/<类型>/index.html 装进 iframe，
+     * 编辑文案后实时重渲染。模板需要三样东西才画得对：
+     *   1) 皮套 payload（petPayload）—— 不传就退回静图，动效全没了
+     *   2) 画幅 —— 从 types.mjs 取，别在前端硬编码
+     *   3) 默认脚本 —— 打开就有东西看，不用先手打一遍
+     * 一次性全给，预览页只发一个请求。
+     *
+     * 🔴 皮套素材要**转成 http 地址**再给。
+     *    模板页录屏时是 file:// 打开的，file:// 引 file:// 没问题；
+     *    但预览页是 http://，http 页面去 load file:// 会被浏览器直接拦掉
+     *    （Not allowed to load local resource），PET.mount 等图加载等到 8 秒
+     *    超时才开表，表现就是「气泡要等八秒才出来」。
+     *    所以这里把绝对路径换成 /petasset/ 下的 http 地址（见 STATIC_MOUNTS）。 */
+    if (p === '/video/preview-kit' && req.method === 'GET') {
+      const typeId = u.searchParams.get('type') || 'talk'
+      const t = getType(typeId)
+      let script = null
+      const wantScript = u.searchParams.get('script')
+      if (wantScript) {
+        /* 只允许 video/scripts/ 下的文件名，防路径穿越 */
+        const safe = path.basename(String(wantScript))
+        const f = path.join(DIR, 'video', 'scripts', safe)
+        try { script = JSON.parse(fs.readFileSync(f, 'utf8')) } catch { script = null }
+      }
+      return json(res, 200, {
+        ok: true,
+        type: { id: t.id, name: t.name, width: t.width, height: t.height, segChars: t.segChars },
+        pet: petPayloadForHttp(cfgNow()),
+        script,
+      })
+    }
+
     /* ── 策划台 ─────────────────────────────────────────────────────
      * 策划 md 是「出片前的那道闸」，控制台必须看得见，否则闸形同虚设：
      * 人不知道有几期待批，就会绕过它直接去视频工坊点生成。
@@ -636,6 +735,37 @@ const server = http.createServer(async (req, res) => {
       if (!r.ok) return json(res, 400, r)
       logEvent('core', 'plan.status', { slug: m[1], from: r.prev, to: r.status })
       return json(res, 200, r)
+    }
+
+    /* ── 选题源：从 GitHub 找候选，生成 draft 策划 ──────────────────
+     * 这是「自动找选题」那一环。两条硬规矩：
+     *   · 只产出 draft，**绝不自动 approved**（闸不能自己拆）
+     *   · star/语言/许可这些数字只从 GitHub API 取，不许 LLM 编
+     * 候选是同步返回（一次 API 调用，几百毫秒）；
+     * 生成策划要调 LLM（十几秒），也同步返回 —— 不值得为它加一套队列。 */
+    if (p === '/discover/candidates' && req.method === 'GET') {
+      try {
+        const r = await findCandidates({
+          days: Number(u.searchParams.get('days')) || 30,
+          minStars: Number(u.searchParams.get('minStars')) || 80,
+          limit: Number(u.searchParams.get('limit')) || 12,
+          language: u.searchParams.get('language') || '',
+        })
+        return json(res, 200, { ...r, nextEpisode: nextEpisode() })
+      } catch (e) {
+        return json(res, 502, { ok: false, error: String(e && e.message || e).slice(0, 200) })
+      }
+    }
+    if (p === '/plans/new' && req.method === 'POST') {
+      const body = await readBody(req)
+      if (!body.repo) return json(res, 400, { ok: false, error: '要给 repo（owner/name）' })
+      try {
+        const r = await draftPlan({ repo: String(body.repo).trim(), episode: body.episode, template: body.template })
+        if (!r.ok) return json(res, 400, r)
+        return json(res, 200, { ...r, status: 'draft' })
+      } catch (e) {
+        return json(res, 502, { ok: false, error: String(e && e.message || e).slice(0, 240) })
+      }
     }
 
     /* ── 写文案（同步返回，不排队 —— 只要几秒，改一版文案不用等 80 秒渲染） ── */
