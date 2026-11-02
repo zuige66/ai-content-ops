@@ -58,15 +58,15 @@ C 的「不用带电脑」是结论，说出来就没悬念了，而悬念正是
 
 ## 2. 标题（抖音，≤20 字）
 
-1. 安卓手机能跑 Ubuntu，一周四千四百星
+1. **安卓手机能跑 Ubuntu，八天五千三百星** ← 用这条
 2. 手机里装个 Ubuntu，还不用 root
-3. 把编程 agent 装进手机，一周四千星
+3. 把编程 agent 装进手机，八天五千星
 4. 安卓能跑 AI 编程了，不用 root
-5. 一周四千四百星，这安卓 App 干了啥
+5. 八天五千三百星，这安卓 App 干了啥
 
 **B站备查**（暂不投）
 
-1. dsh-Go：安卓手机本地跑 DeepSeek 编程 Agent，一周 4.4k star
+1. dsh-Go：安卓手机本地跑 DeepSeek 编程 Agent，八天 5.3k star
 2. dsh-Go 上手：免 root 免 Termux，还能 SSH 接管电脑
 
 ## 3. 封面（四要素 + 三层景深）
@@ -133,13 +133,13 @@ C 的「不用带电脑」是结论，说出来就没悬念了，而悬念正是
 ## 6. 发布包
 
 ```
-desc  ：安卓手机能跑 Ubuntu 了，一周四千四百星。
+title ：安卓手机能跑 Ubuntu，八天五千三百星
+desc  ：分享一个开源项目 dsh-Go：安卓手机能跑 Ubuntu，八天五千三百星。
         dsh-Go 把 DeepSeek 的编程 agent 装进安卓，自带 Ubuntu 和 Node，
         不用 root 不用 Termux，还能 SSH 连回电脑接着写。
         缺点：只有安卓，iPhone 再等等。转给那个天天背电脑通勤的同事。
 tags  ：#GitHub #开源 #AI编程 #DeepSeek #安卓
 地点  ：广东工业大学（大学城校区）
-定时  ：次日 19:00
 平台  ：抖音（B站暂不投）
 ```
 
