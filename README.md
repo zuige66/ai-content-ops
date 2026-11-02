@@ -302,12 +302,121 @@ curl -X POST http://127.0.0.1:18090/jobs/<jobId>/confirm \
 **第一次不会发出去**，只把要发的原样摆给你看：
 
 ```
-item_id:    @ivRu6bNMRknwts1d6LL...（加密串）
-comment_Id: @ivRu6bNMRknwts1d6LL...
-text:       谢谢支持，下次直播再聊～
+aweme_id:            7703140636089699634
+reply_to_comment_ids: 7703250197081523002
+text:                广工的水养出来的嘛
 ```
 
 再点「确认发送」才真发。
+
+> 🔴 **2026-11-02 接口换过一次，旧参数全废。**
+> 以前记的 `POST /aweme/v1/creator/comment/reply/` + form `{comment_Id, item_id, text}`
+> 现在一律回「参数不合法」。真接口是：
+>
+> ```
+> POST creator.douyin.com/aweme/janus/creator/comment/aweme/v1/web/comment/multi_publish/
+> query: aweme_id=<明文数字>&text=<文本>&reply_to_comment_ids=<数字>&channel_id=618&aid=2906&device_platform=webapp
+> body : {"aweme_id":"…","text":"…","reply_to_comment_ids":"…","channel_id":618}
+> ```
+>
+> 三个坑：
+> 1. `reply_to_comment_ids` 要**数字 id**（`7703250197081523002`），不是 creator 列表里的加密串（`@ivRu…==`）。数字 id 只能从 www 域 `/aweme/v1/web/comment/list/` 拿，且**必须在作品页里发请求** —— 在 www 首页发会得到 200 + HTML 风控页。
+> 2. 参数 query 和 JSON body 各放一份，缺一边可能被判参数不合法。
+> 3. 表情面板只有 188 个抖音官方 emoji（`kan` / `fanu` / `weixiao`…），**没有自定义表情包，也没有图片上传**。`multi_publish` 名字里带 multi，但图片评论（`image_list`）目前只有手机 APP 能发。
+
+### 发表情包：评论做不到，私信可以
+
+两条路能力完全不同，别混为一谈：
+
+| 场景 | 文字 | 官方 emoji | 自定义表情包 / 图片 |
+|---|---|---|---|
+| **视频评论回复** | ✅ | ✅ 188 个 | ❌ 接口只收 text |
+| **私信** | ✅ | ✅ | ✅ jpg/png/gif/mp4 |
+
+评论这边，别人发来的是**图片评论**（`image_list`，creator 侧正文为空），
+回复接口只收文字，表情面板只有官方 emoji —— 想要表情包对轰只能手机 APP 手动发。
+
+私信那边能发图：输入区背后有个 `input[type=file] accept=".jpg,.jpeg,.png,.gif,.mp4"`，
+把文件塞进去会弹出「发送给 XX / 文件名 / 大小 / 取消 / 发送（1）」的确认条，
+点「发送」就出去了。`douyin/dm.mjs` 的 `sendImage()` 就是这么做的 ——
+**不要点附件按钮**，那会弹出 Windows 系统文件对话框，Playwright 卡在那儿，
+连截图都会超时。
+
+### 自动回复（平峰时段跑）
+
+`tools/auto-reply.mjs` 把评论和私信一起处理，只在 DeepSeek 平峰时段真干活。
+
+```bash
+node tools/auto-reply.mjs            # 按当前时段判断，平峰才跑
+node tools/auto-reply.mjs --dry      # 只生成草案，一条都不发
+node tools/auto-reply.mjs --yes      # 真发
+node tools/auto-reply.mjs --no-dm    # 这轮不回私信
+node tools/auto-reply.mjs --force    # 忽略时段（调试用，高峰会花双倍钱）
+node tools/auto-reply.mjs --off      # 总开关关掉
+node tools/auto-reply.mjs --on       # 总开关打开
+```
+
+> 🔴 **2026-08-17 起 DeepSeek 不再有"错峰 5 折"，改成了峰谷定价。**
+> 工作日 09:00–12:00、14:00–18:00（北京时间）价格**翻倍**，其余时间、周末、
+> 法定节假日执行原价。判断逻辑在 `core/offpeak.mjs`，节假日表硬编码，
+> **认不出来的日子一律按高峰处理**（宁可少跑一轮，不多花钱）。跨年要补下一年的表。
+
+幂等靠 `state/auto-reply-state.json`：
+
+- 已回过的评论 id 永久记账，不重复回
+- 私信存每个会话的「消息指纹」（只看真人说的话），指纹没变就不打扰
+- 只留最近 400 条评论记录，防止文件膨胀
+
+三条硬规则：
+
+1. **不算「对方说话」的东西**：时间分隔条、以及抖音的系统提示
+   （「只能发送一条文字消息」「暂不支持该消息类型」…）。第一版没过滤，
+   结果给两个根本没开口的陌生人各发了一条私信 —— 私信只能发一次，补不回来。
+2. **私信限一条**：页面上写着「对方回复或关注你之前，只能发送一条文字消息」。
+   所以最后一条如果是「我」，且这个会话被标记限一条，这一轮就不发。
+3. **不自己 launchPersistent**：server 已经占着 `sessions/douyin`，脚本再起一个
+   必然报 `Target page, context or browser has been closed`。评论全程走 HTTP
+   （`/douyin/refresh`、`/douyin/works`、`/douyin/comments`、`/douyin/replies`、
+   `/douyin/reply`），白拿 server 的熔断器和 60 秒限速。
+
+定时任务：每天 08:00 / 13:00 / 19:00 / 23:00 各一轮（四个点都在平峰）。
+高峰时段触发到也没事 —— 脚本会打印「跳过」并退出，零 LLM 费用。
+
+#### 定时器放在系统后台，不依赖 WorkBuddy
+
+`tools/scheduler.mjs` 是常驻进程，自己看表，到点 spawn 一次 `auto-reply.mjs`。
+
+```bash
+node tools/scheduler.mjs            # 前台跑（调试）
+node tools/scheduler.mjs --once     # 立刻跑一轮然后退出
+```
+
+开机自启：`start-scheduler.vbs` 已复制到
+`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\zhibo-auto-scheduler.vbs`。
+VBS 里写死了 node 的绝对路径（WorkBuddy 自带的那份），**升级 WorkBuddy 后路径会变，要改**。
+
+为什么不用 Windows 计划任务：`schtasks` 从 bash 调用会被安全策略拦
+（"Invoking cmd.exe from Bash bypasses all command validation"），
+`wscript` 也被当成 LOLBin 拦。所以只用 node 常驻进程 + 启动文件夹。
+
+定时器自己的状态在 `state/scheduler-state.json`（记「今天这个点跑过了」，
+重启进程不会重复跑），日志在 `logs/scheduler/<日期>.ndjson`。
+
+定时器**顺带守护控制台服务**：每 30 秒探一次 `:18090`，挂了就拉起来
+（拉起后 90 秒内不再探，给它预热抖音数据的时间 —— 约 15 秒）。
+为什么需要：server 是评论发送的唯一出口（熔断器 + 60 秒限速都在里面），
+实测它会被系统清理掉（跑满 6 小时后 exit 127），挂了 auto-reply 就干不了活。
+
+#### 陌生人私信：不做自动回复
+
+抖音把没互关的人折叠在「陌生人消息」分组里，这个分组**跟未读绑定** ——
+点进去读过一次就收起来、入口消失，想再进只能等新消息。加上：
+
+- 展开后左栏子项被分组头遮挡（子项 y≈88 落在分组 60~126 里），坐标点永远点到分组头
+- 展开那一瞬间列表会带 `transform: matrix(1,0,0,1,-303,0)` 滑出视口，卡住不回来
+
+所以 `auto-reply.mjs` 只做 `reportStrangers()`：能读到就把会话列进结果推给人，
+**不自动发**。抖音对陌生人「只能发一条文字」，发错补不回来，交给手机处理更稳。
 
 ### 改作品
 
@@ -405,7 +514,7 @@ edge-tts 连不上微软的接口，一般是网络问题。**隔一分钟重试
 先不录视频，用预览脚本出 3 张截图，6 秒就能看到版式对不对：
 
 ```bash
-node video/preview.mjs _script_day0.json
+node video/preview.mjs video/scripts/_script_day0.json
 ```
 
 比录一条 100 秒的片子快 20 倍。
@@ -440,7 +549,7 @@ curl -X POST http://127.0.0.1:18090/jobs/<id>/confirm \
 
 ```bash
 node -e "
-const s = require('./_script_day0.json');
+const s = require('./video/scripts/_script_day0.json');
 fetch('http://127.0.0.1:18090/video/make', {
   method: 'POST', headers: {'content-type':'application/json'},
   body: JSON.stringify({
@@ -491,24 +600,40 @@ douyin/             登录 / 会话体检 / 投稿 RPA / 评论 / insight（读�
 bili/               同构一套
 
 web/                控制台前端（原生 ES module，无打包步骤）
-  app/views/        五个页面各一个文件
+  app/views/        六个页面各一个文件
   styles/           设计令牌 + 组件样式
   vendor/           Vue / 字体（本地化，不连 CDN）
+
+tools/              常驻工具：自动回复、定时器、素材、抠图、成片复审
+tools/probe/        一次性探测脚本（抖音页面改版后重跑；相对引用是 ../../）
+
+.workbuddy-ai/      skill 池与工作日志 🔒 不进仓库
+  skills/           github-picks（原生）＋ video-shotcraft（外部引入，见其 README）
+  memory/           按天的排查与决策日志
 
 sessions/           各平台浏览器 profile（登录态）🔒 不进仓库
 logs/               logs/douyin、logs/bili、logs/video —— NDJSON 全留痕 🔒
 state/              任务快照、抖音数据缓存、调试截图 🔒
 video/out/          成片与中间产物 🔒
+.run/               pid 与控制台日志；.run/trash/ 放当天挪走的杂物 🔒
 ```
 
 ---
 
 ## 现状
 
+> 下面这版是 2026-11-02 按 `state/jobs.json` 实测数据写的，不是"感觉做完了"。
+> 任务分布：`pipeline` 成功 3 / 失败 0，`video` 成功 4 / 失败 2，
+> `publish` 成功 3 / 失败 19（其中 16 条是人工撤销，1 条 upload 页 `goto` 超时 60s）。
+
 - ✅ 主题 → 文案 → 成片 全链路（竖屏 88s / 横屏 85s 各跑通过，一条龙约 110 秒）
 - ✅ 抖音登录 + 账号数据 + 评论回复 + 编辑入口
-- ✅ 抖音投稿两段式（dry-run 实测通过，含上传等待与按钮预检）
+- 🟡 抖音投稿两段式：dry-run 机制在，但选择器/导航不稳（19/22 次没走通）
 - ✅ 本地成片库 + 磁盘清理
+- ⏳ **发布这一环在界面上没有入口**：`web/app` 里零处调用 `/publish`，
+  目前只能靠脚本/AI 建 job，再去任务中心点确认
+- ⏳ **策划台与视频工坊没接上**：策划 md 里的钩子与口播不会流进工坊，
+  工坊只吃一个 `topic` 让 LLM 重写；`/pipeline/run` 也不校验策划 `approved`
 - ⏳ B 站登录待真实扫码验证；投稿 RPA 选择器要拿真实页面微调
-- ⏳ 投稿还差：AI 生成内容声明勾选、B 站分区、定时发布
-- ⏳ 视频侧还差：BGM、响度归一化
+- ⏳ 投稿还差：AI 生成内容声明勾选、B 站分区
+- ⏳ 视频侧还差：BGM、响度归一化（方法见 `.workbuddy-ai/skills/video-shotcraft/references/music-beat-sync.md`）

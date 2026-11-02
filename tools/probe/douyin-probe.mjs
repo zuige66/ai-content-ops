@@ -1,16 +1,16 @@
-/* tools/douyin-probe.mjs —— 只读探测：抖音账号能拿到哪些数据
+/* tools/probe/douyin-probe.mjs —— 只读探测：抖音账号能拿到哪些数据
  * ═══════════════════════════════════════════════════════════════
  * 不猜接口。做法是开着登录态逛一遍创作者后台的页面，把页面自己发的
  * XHR/fetch 全抓下来（URL / 状态码 / 顶层字段），顺带抽 DOM 里的头像、
  * 昵称、简介、背景图，最后落 state/probe-douyin.json + 每页截图。
  *
  * 🔴 全程只 GET 页面和接口，不点任何按钮、不发任何写请求。
- * 用法：node tools/douyin-probe.mjs [--headed]
+ * 用法：node tools/probe/douyin-probe.mjs [--headed]
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { launchPersistent } from '../core/browser.mjs'
-import { ROOT, logEvent } from '../core/log.mjs'
+import { launchPersistent } from '../../core/browser.mjs'
+import { ROOT, logEvent } from '../../core/log.mjs'
 
 const HEADED = process.argv.includes('--headed')
 

@@ -12,6 +12,13 @@ import { api } from './core/api.js'
 export const store = reactive({
   view: 'login',
 
+  /** 策划台 → 视频工坊的交接位。
+   *  为什么放 store：两个视图是独立模块、没有父子关系；用路由参数又要给
+   *  这个无打包前端加一层路由，不值。这里只放一个 slug，工坊拿到后自己按
+   *  /plans/<slug> 拉全文 —— 单一事实源仍然是那个 md，工坊只是**读**它，
+   *  不复制、不改写。 */
+  pendingPlan: null,
+
   /** 首屏是否已经拿到过一份数据（没有就先画骨架，别画"0"） */
   ready: false,
   /** 同步失败时的最后一次错误，标题行上用来提示"数据可能不新" */

@@ -14,14 +14,21 @@ export async function quickCheck(ctx) {
 }
 
 /** 体检：nav 接口在页面上下文里带凭证调，返回 isLogin 和昵称。
- *  没登录返回 soft（不触发熔断）；有 cookie 但接口不认才是掉号。 */
+ *  没登录返回 soft（不触发熔断）；有 cookie 但接口不认才是掉号。
+ *
+ *  🔴 自己 newPage 出来的页必须自己关（抖音版有 own+finally，这份丢了）。
+ *     /status 每 6 秒轮询一次，不关的话每个平台每分钟攒 10 个 tab，
+ *     跑一晚上浏览器就废了。 */
 export async function checkAlive(ctx) {
   const quick = await quickCheck(ctx)
   if (!quick.ok) return { ok: false, why: quick.why, soft: true }
+  let page
+  let own = false
   try {
-    let page = ctx.pages().find(p => p.url().includes('bilibili.com'))
+    page = ctx.pages().find(p => p.url().includes('bilibili.com'))
     if (!page) {
       page = await ctx.newPage()
+      own = true
       await page.goto('https://www.bilibili.com/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
     }
     const r = await page.evaluate(async () => {
@@ -35,6 +42,8 @@ export async function checkAlive(ctx) {
     return r
   } catch (e) {
     return { ok: false, why: String(e && e.message || e).slice(0, 160) }
+  } finally {
+    if (own && page) await page.close().catch(() => {})
   }
 }
 

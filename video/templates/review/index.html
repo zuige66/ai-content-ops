@@ -1,0 +1,1422 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>review 模板 · 项目展示（横屏 16:9）</title>
+<style>
+/* ══════════════════════════════════════════════════════════════
+   review 模板（视频类型「项目展示」）：**横屏 1920×1080**
+   GitHub 项目推荐系列专用。封面 intro + 5 镜，一镜一个卖点。
+
+   🔴 2026-11-02 定：全系列默认横屏，不再出竖屏。
+   竖屏录一遍等于白跑 TTS 和录屏，改画幅前先看 types.mjs。
+
+   版面隐喻：**画框 + 说明牌**。左边装裱截图，右边贴说明牌
+   （数据卡 / 关键词）。横屏空间富裕，图和字并排，不用上下堆。
+
+   为什么用深底：
+   1. 项目截图大多是浅色 UI。深底一衬，截图自己就跳出来，
+      不需要发光、描边、投影这些廉价手法去"加科技感"。
+   2. 全屏只有说明牌那块是亮的，数据（4.4k）因此自动成为重心。
+   3. 深底让 5 次切换不刺眼：浅色画面之间硬切会闪，深色垫着就不会。
+
+   和 diary/talk 的区别：那两套是「角色说话」，这套是「物证陈列」。
+   正片不挂皮套、不出气泡、不用橙。朱红 #D2452F 是唯一强调色。
+   —— 但**封面**要出大肥鱼，它是系列的签名，不是装饰。
+
+   🔴 踩过的坑：
+   · 数据卡不能放在 #frame 里面 —— 画框有 overflow:hidden，
+     卡片往左外溢的那一半会被裁掉。
+   · 关键词为空时整行要隐藏。留一根空的红条比什么都不放更怪。
+   · 纯排版镜不要自己上底色。画框是 #12161C、win 是 #0B0E12 的话，
+     两个深色在接缝处会形成一条横线，看起来像画面断成两截。
+   · #ishot 转场后会溢出画框（图片比例和 1300×700 对不上）。溢出部分
+     靠最后 0.16s 交叉淡出收掉，所以顶栏/底栏的淡入必须比它晚 ——
+     否则白边会盖着期号，看起来像没对齐。
+   ══════════════════════════════════════════════════════════════ */
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#0E1116}
+body{
+  font-family:"Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif;
+  color:#F5F1EA;position:relative;
+  background:radial-gradient(90% 120% at 20% 0%, #171C24 0%, #0E1116 58%);
+}
+
+/* ── 顶栏：期号 + 系列名 ─────────────────────────────────────── */
+#top{position:absolute;left:60px;right:60px;top:34px;display:flex;align-items:baseline;gap:18px;z-index:6}
+#ep{font-size:56px;font-weight:800;color:#D2452F;line-height:1;
+  font-variant-numeric:tabular-nums;letter-spacing:-2px}
+#slash{font-size:34px;color:rgba(245,241,234,.26);font-weight:300}
+#series{font-size:34px;font-weight:700;color:rgba(245,241,234,.62);letter-spacing:3px}
+/* 🔴 2026-11-02：右上角"AI 生成"18px 已删。
+   推荐类视频里所有字都要在手机上直接读清，18px 在 1080 宽画面上
+   等于一行噪点 —— 观众不会读，只会觉得画面脏。宁可删掉。 */
+
+/* ── 画框：1800×700，左图右牌 ─────────────────────────────────── */
+#frame{
+  position:absolute;left:60px;top:112px;width:1800px;height:700px;
+  border:1px solid rgba(245,241,234,.13);border-radius:18px;
+  background:#12161C;overflow:hidden;
+  box-shadow:0 40px 90px -34px rgba(0,0,0,.9);
+}
+
+/* 截图区。三层嵌套各管一件事，别合并：
+   #win   → 裁切 + 画框内尺寸
+   #shotIn→ 入场位移（每镜重播）
+   #shot  → 慢推（一镜推到底，中途不重来） */
+#win{position:absolute;left:0;top:0;width:1300px;height:700px;
+  overflow:hidden;background:transparent}
+#shotIn{position:absolute;inset:0}
+#shotIn.enter{animation:shotIn .54s cubic-bezier(.22,1,.36,1) both}
+@keyframes shotIn{
+  from{opacity:0;transform:translateX(54px)}
+  to{opacity:1;transform:none}
+}
+#shot{width:100%;height:100%;object-fit:cover;display:block;
+  transform:scale(1);transform-origin:center;
+  transition:transform 8.5s linear, opacity .16s linear}
+/* 慢推：每镜从 1 推到 1.04，8 秒半线性。镜头在动，观众就觉得画面是活的。
+   切换时由 JS 把 transform 重置回 1。 */
+#shot.push{transform:scale(1.04)}
+
+/* ── 纯排版层：某些镜头没有截图可放 ─────────────────────────
+   「以前得装 Termux、折腾 root」这种事没有截图能证明 ——
+   编一张假的终端图反而更假。所以留一个排版层：把旧方案的字
+   用朱红粗线划掉，比摆一张截图更有说服力。
+
+   🔴 2026-11-02 改版：原来是「居中两个词 + 下面一行字幕」，
+   一屏留白巨大，观众划走。现在改成**左文右卡双栏**：
+   左栏 = 眉题 + 主标题 + 带说明的条目（逐条划掉）；
+   右栏 = 纸白便签（新的解法 / 代价）。
+   信息密度提上来，排版镜才配得上占一整镜 6 秒。 */
+#typebox{position:absolute;inset:0;display:none;
+  background:transparent;z-index:2}
+/* 底图铺满整个画框（不只截图区）—— 排版镜没有左右分栏，
+   画框右半也是排版区，底图必须整幅铺 */
+#typebox.on{display:block}
+#typebox .bgimg{position:absolute;inset:-6%;z-index:0;
+  background-size:cover;background-position:center;
+  filter:blur(40px) brightness(.3) saturate(.65);transform:scale(1.14)}
+#typebox .veil{position:absolute;inset:0;z-index:0;
+  background:
+    linear-gradient(180deg,rgba(14,17,22,.55) 0%,rgba(14,17,22,.2) 45%,rgba(14,17,22,.62) 100%)}
+
+/* 双栏容器。
+   🔴 两栏必须**等高**，不然左右重心不在一条线上，看着像两张图硬拼。
+   左侧内容少的时候用 padding-top 顶开，而不是全靠 flex 居中 ——
+   居中会让眉题飘在半空，脱离画面结构。 */
+#typebox .cols{position:absolute;inset:0;z-index:1;
+  display:flex;align-items:stretch;gap:64px;padding:0 88px}
+/* 有底栏时把双栏整体往上让 —— 不然底栏会压住最后一个条目 */
+#typebox.hasfoot .cols{padding-bottom:150px}
+/* 左栏：眉题 + 主标题 + 条目 */
+#typebox .colL{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;
+  justify-content:center;gap:26px;padding:0 0;position:relative}
+/* 底栏对照条：贴在画框下沿的一行对比信息。
+   🔴 加它的理由不是"填空白"，而是排版镜原本只有中间一小坨内容，
+   上下各空 200px，看着像没做完。底栏把信息摊到画面下沿，
+   画面重心才落得住。（纯装饰的横线不算信息，不许加。） */
+#typebox .foot{display:none}
+/* 眉题（"以前的办法"这种小标签）已删。
+   它和主标题说的是同一件事，字号却只有 22px —— 推荐视频里没有任何
+   一行的字号可以小到"看不懂但占着位置"。留主标题 + 条目就够。 */
+#typebox .kick{display:none}
+#typebox .ttl{font-size:96px;font-weight:900;line-height:1.06;letter-spacing:-3px;
+  color:#F5F1EA}
+/* 主标题里的重点词：白字 + 朱红马克笔底划。
+   借 video-shotcraft 的 marker-underline-title —— 三个命门照抄：
+   ① 快（一笔 0.34s，慢了读作加载条）② 近（贴字底 6px，远了读作分隔线）
+   ③ 跟字势（微上斜 -0.8deg，水平线读作 CSS border，不是手画的）。
+   时机放在标题落定之后起笔：划线是"看完标题后的强调"，同动就抢戏。 */
+#typebox .ttl em{font-style:normal;color:#F5F1EA;position:relative;
+  display:inline-block;white-space:nowrap}
+#typebox .ttl em::after{content:'';position:absolute;left:-2%;bottom:-8px;height:15px;
+  width:0;background:#D2452F;border-radius:7px;
+  transform:rotate(-.8deg);transform-origin:left center}
+#typebox.in .ttl em::after{width:104%;
+  transition:width .34s cubic-bezier(.25,.85,.35,1) .62s}
+/* 条目：一条 = 一个大词（可带说明小字）
+   🔴 字号要够大。排版镜只有两三个元素，字号不够就是"没做完"，
+   靠加装饰补不回来 —— 大字号本身就是内容。 */
+#typebox .items{display:flex;flex-direction:column;gap:18px;margin-top:6px}
+#typebox .item{display:flex;align-items:baseline;gap:20px}
+#typebox .item .t{font-size:84px;font-weight:900;line-height:1.1;
+  letter-spacing:-2px;white-space:nowrap}
+/* 条目说明：26 → 34px。它承载的是"Termux 是什么"这类必要信息，
+   不是装饰，所以不能当小字处理。 */
+#typebox .item .d{font-size:34px;font-weight:600;color:rgba(245,241,234,.6);
+  line-height:1.34;letter-spacing:.3px}
+#typebox .item .d::before{content:'—';margin-right:10px;color:rgba(245,241,234,.3)}
+
+/* 右栏：纸白便签。
+   🔴 便签不能只占一小块 —— 内容少的时候它会缩成一张小卡片，
+   挂在右边像贴歪了的贴纸。给它 min-height 和更大的字号，
+   让它和左栏在视觉上"对等"，而不是一个重一个轻。 */
+#typebox .colR{flex:0 0 600px;display:flex;align-items:center}
+#typebox .pcard{width:100%;min-height:300px;background:#F5F1EA;color:#0E1116;
+  border-radius:16px;padding:44px 46px 46px;
+  display:flex;flex-direction:column;justify-content:center;
+  box-shadow:0 26px 54px -20px rgba(0,0,0,.9)}
+#typebox .pcard .k{font-size:28px;font-weight:800;letter-spacing:3px;
+  color:#8A8172;line-height:1.2}
+#typebox .pcard .v{font-size:74px;font-weight:900;color:#D2452F;line-height:1.06;
+  letter-spacing:-2px;margin-top:12px}
+#typebox .pcard .s{font-size:34px;font-weight:600;color:#2A2620;opacity:.82;
+  line-height:1.42;margin-top:18px}
+
+/* ── url 型排版镜（镜 5 仓库地址）：左地址右坦白 ───────────────── */
+#typebox.url .cols{justify-content:flex-start;gap:70px}
+#typebox.url .colL{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;
+  justify-content:center;gap:24px}
+#typebox.url .kick,#typebox.url .ttl,#typebox.url .items{display:none}
+#typebox.url .line{font-family:"Cascadia Mono",ui-monospace,monospace;
+  font-size:52px;font-weight:700;line-height:1.36;word-break:break-all;
+  letter-spacing:-1.5px;color:#F5F1EA}
+#typebox.url .note{font-size:34px;font-weight:700;color:rgba(245,241,234,.58);
+  letter-spacing:2px;display:flex;align-items:center;gap:18px}
+#typebox.url .note::before{content:'';width:64px;height:3px;flex:none;
+  background:#D2452F;border-radius:2px}
+#typebox.url .colR{flex:0 0 560px;display:flex;align-items:center}
+
+/* 旧版行式排版（没有 items 时的兜底路径） */
+#typebox .lines{display:flex;flex-direction:column;justify-content:center;
+  align-items:center;gap:22px;padding:0 90px;text-align:center}
+#typebox .line{font-size:86px;font-weight:900;line-height:1.28;color:#F5F1EA;
+  letter-spacing:-1px}
+/* 兜底路径的小字说明。url 型有自己的 note 样式（带朱红短横），
+   这里是给没有 items、只有 lines 的老脚本用的。 */
+#typebox .note{font-size:32px;font-weight:700;color:rgba(245,241,234,.58);
+  letter-spacing:2px}
+
+/* 划线：不用 text-decoration。原生删除线画不出来也动不了 ——
+   必须是一条能"从左往右划过去"的实体线，观众才看见"划掉"这个动作。
+   静态的删除线只是一条灰线，读不出时间。 */
+.strike{position:relative;display:inline-block;color:rgba(245,241,234,.62)}
+/* 线的粗细和位置都用 em —— 字号从 56 涨到 80 时，线跟着变粗，
+   否则大字配细线像拿钢笔在招牌上划一道，没有"划掉"的力道。 */
+.strike::after{content:'';position:absolute;left:-3%;top:53%;height:.1em;width:0;
+  background:#D2452F;border-radius:.05em;
+  transform:translateY(-50%) rotate(-.6deg)}
+.strike.on::after{width:106%;transition:width .46s cubic-bezier(.65,0,.35,1)}
+
+/* 排版镜的入场动效：眉题先到 → 标题落 → 条目依次上浮 → 便签压下来。
+   四个元素四拍，观众视线有明确的落点，不是一坨东西同时出现。
+
+   🔴 为什么动画挂在 `.in` 而不是 `.on`：
+   #typebox 默认 display:none。加 .on 的那一刻它才第一次被渲染，
+   浏览器对"上一帧还不存在"的元素**不会启动过渡**，属性直接跳到终值 ——
+   所有动效静默失效，而且不报错。所以 .on 只负责显示，
+   .in 在下一帧再挂上，动画才真的跑。 */
+#typebox .kick{opacity:0;transform:translateY(-10px)}
+/* 标题不再整块淡入 —— 改成逐字上滑（见 .ch）。
+   整块淡入 8 个字同时出现，读作"一坨"；逐字才有"写上去"的感觉。 */
+#typebox .ttl .ch{display:inline-block;opacity:0;transform:translateY(.42em)}
+#typebox .item{opacity:0;transform:translateY(20px)}
+#typebox .pcard{opacity:0;transform:translateY(26px) scale(.97)}
+#typebox.in .kick{opacity:1;transform:none;
+  transition:opacity .3s ease-out .02s,transform .38s cubic-bezier(.22,1,.36,1) .02s}
+#typebox.in .ttl .ch{opacity:1;transform:none;
+  transition:opacity .24s ease-out,transform .42s cubic-bezier(.22,1,.36,1)}
+#typebox.in .item{opacity:1;transform:none;
+  transition:opacity .3s ease-out,transform .44s cubic-bezier(.22,1,.36,1)}
+#typebox.in .pcard{opacity:1;transform:none;
+  transition:opacity .34s ease-out .24s,transform .5s cubic-bezier(.22,1,.36,1) .24s}
+/* url 型镜的地址行和说明小字也要有入场，不能硬邦邦地杵在那 */
+#typebox.url .line{opacity:0;transform:translateY(14px)}
+#typebox.url .note{opacity:0;transform:translateY(12px)}
+#typebox.url.in .line{opacity:1;transform:none;
+  transition:opacity .3s ease-out .02s,transform .44s cubic-bezier(.22,1,.36,1) .02s}
+#typebox.url.in .note{opacity:1;transform:none;
+  transition:opacity .3s ease-out .28s,transform .4s cubic-bezier(.22,1,.36,1) .28s}
+/* 底栏也跟着淡入，别让它比正文先出现 */
+#typebox .foot{opacity:0;transform:translateY(10px)}
+#typebox.in .foot{opacity:1;transform:none;
+  transition:opacity .32s ease-out .32s,transform .42s cubic-bezier(.22,1,.36,1) .32s}
+
+/* ── 说明牌：画框右半，全屏唯一的亮区 ─────────────────────────── */
+#frame.full #win{width:1800px}
+#frame.full #plate{display:none}
+/* 说明牌推入：转场落地时从右侧进来，接住观众的视线。
+   没有这一下，图落进画框后右半边是空的，要等下一拍数据卡才弹出来 ——
+   中间那 0.2 秒读作"卡住了"。 */
+#plate.pushin{animation:plateIn .52s cubic-bezier(.22,1,.36,1) both}
+@keyframes plateIn{
+  from{opacity:0;transform:translateX(52px)}
+  to{opacity:1;transform:none}
+}
+#plate{position:absolute;left:1300px;right:0;top:0;bottom:0;
+  padding:0 54px;display:flex;flex-direction:column;justify-content:center;gap:26px;
+  border-left:1px solid rgba(245,241,234,.09)}
+
+/* 关键词：这一镜要人记住的那句话。没给就整块不出现。
+   红条从 0 高度长出来（scaleY），字跟在后面推上来 —— 两拍，不是一拍。 */
+#key{display:none;align-items:flex-start;gap:18px}
+#key.on{display:flex}
+#key .bar{width:7px;align-self:stretch;min-height:52px;
+  background:#D2452F;border-radius:2px;flex:none;
+  transform:scaleY(0);transform-origin:top center}
+#key.on .bar{transform:scaleY(1);transition:transform .44s cubic-bezier(.22,1,.36,1)}
+#key .t{font-size:54px;font-weight:800;letter-spacing:.5px;line-height:1.3;
+  opacity:0;transform:translateX(-12px)}
+#key.on .t{opacity:1;transform:none;
+  transition:opacity .3s ease-out .13s,transform .42s cubic-bezier(.22,1,.36,1) .13s}
+
+/* 数据卡：纸白便签。有 big 才出现，空卡片比没有更难看 */
+#card{
+  display:none;align-self:stretch;
+  background:#F5F1EA;color:#0E1116;border-radius:16px;
+  padding:34px 40px 36px;
+  box-shadow:0 18px 38px -16px rgba(0,0,0,.85);
+}
+#card.on{display:block;animation:cardIn .4s cubic-bezier(.22,1,.36,1) both}
+@keyframes cardIn{
+  from{opacity:0;transform:translateY(16px) scale(.96)}
+  to{opacity:1;transform:none}
+}
+#card .k{font-size:28px;font-weight:800;color:#6B6459;letter-spacing:2px;line-height:1.2}
+#card .v{font-size:92px;font-weight:800;color:#D2452F;line-height:1.02;
+  font-variant-numeric:tabular-nums;letter-spacing:-3px}
+#card .s{font-size:32px;font-weight:700;color:#0E1116;opacity:.75;line-height:1.3}
+
+/* ── 字幕：口播原文。静音刷的人全靠这一行 ─────────────────────── */
+#sub{
+  position:absolute;left:60px;right:60px;top:848px;z-index:6;
+  /* 🔴 56px / 1080 = 5.2% 帧高。规则（aesthetic-rules Q11）要求
+     要被读的字幕 ≥5% 帧高，52px 只有 4.8%，手机上小一号。 */
+  font-size:56px;font-weight:700;line-height:1.42;letter-spacing:.5px;
+  color:#F5F1EA;text-wrap:pretty;
+  opacity:0;transform:translateY(14px);
+  transition:opacity .3s ease-out,transform .34s cubic-bezier(.22,1,.36,1);
+}
+#sub.on{opacity:1;transform:none}
+/* 口播里的关键词标朱红。用 **词** 标记，TTS 念之前会把标记剥掉 */
+#sub .hl{color:#FF6B4A;font-weight:800}
+
+/* ── 底栏：仓库地址，全程常驻，方便截图传播时溯源 ─────────────── */
+#foot{position:absolute;left:60px;right:60px;bottom:34px;display:flex;align-items:center;gap:14px;z-index:6}
+#foot .dot{width:8px;height:8px;border-radius:50%;background:#D2452F;flex:none}
+#repo{font-size:30px;color:rgba(245,241,234,.5);letter-spacing:.4px;
+  font-family:"Cascadia Mono",ui-monospace,monospace;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ══════════════════════════════════════════════════════════════
+   封面层（intro）：和 cover-pick 模板同一套四要素 + 三层景深。
+   抄过来而不是 iframe 引封面 png，因为转场要**解构**它 ——
+   四个元素各自飞向正片的不同位置，一张位图拆不开。
+   ══════════════════════════════════════════════════════════════ */
+#intro{position:fixed;inset:0;z-index:50;pointer-events:none}
+
+/* 远景：截图墙，只读作"一堆界面"。
+   🔴 brightness 必须压到 .45 以下。压不够，墙就是全画面最亮的一块，
+   白底截图反而沉进去 —— 景深做反了，主体站在背景后面。 */
+#iwall{position:absolute;inset:-10%;
+  background-size:50% 50%;background-repeat:repeat;background-position:center;
+  filter:blur(28px) brightness(.5) saturate(.95);transform:scale(1.12)}
+#iscrim{position:absolute;inset:0;
+  background:
+    linear-gradient(180deg,rgba(14,17,22,.6) 0%,rgba(14,17,22,.1) 40%,rgba(14,17,22,.55) 100%),
+    radial-gradient(86% 66% at 26% 28%,rgba(14,17,22,0) 0%,rgba(14,17,22,.5) 100%)}
+
+/* 中景 1：大字 */
+#ihead{position:absolute;left:78px;top:96px;transform-origin:left top;
+  transform:perspective(1600px) rotateY(-8deg)}
+#ibrand{font-size:34px;font-weight:800;color:rgba(245,241,234,.6);
+  letter-spacing:8px;margin-bottom:10px}
+#ibig{font-size:134px;font-weight:900;line-height:.98;letter-spacing:-4px;
+  color:#F5F1EA;white-space:nowrap;
+  text-shadow:0 10px 0 rgba(0,0,0,.42),0 22px 46px rgba(0,0,0,.55)}
+#isub{font-size:110px;font-weight:900;line-height:1.06;letter-spacing:-2px;
+  color:#D2452F;white-space:nowrap;margin-top:6px;
+  text-shadow:
+    -4px -4px 0 #F5F1EA,4px -4px 0 #F5F1EA,-4px 4px 0 #F5F1EA,4px 4px 0 #F5F1EA,
+    0 -4px 0 #F5F1EA,0 4px 0 #F5F1EA,-4px 0 0 #F5F1EA,4px 0 0 #F5F1EA,
+    0 14px 0 rgba(0,0,0,.4)}
+
+/* 中景 2：清晰截图，白边 + 硬投影 + 透视 */
+#ishotWrap{position:absolute;right:-30px;top:104px;width:1150px;
+  /* 🔴 transform-origin 必须是 center center。
+     转场按"内容区中心 → 画框中心"算位移，原点在 center 时缩放前后
+     中心不动，dx/dy 才是纯平移；用 right center 会多出一个
+     (scale-1)*w/2 的水平偏移，落地差 90px。 */
+  transform-origin:center center;
+  transform:perspective(1800px) rotateY(-16deg) rotateX(3deg)}
+#ishot{width:100%;display:block;border-radius:10px;
+  /* object-fit 必须和 #shot 一致：转场落地要"同一张图同一个裁切"，
+     不然交叉淡出那一下会看到画面在跳。高度由 JS 按画框比例算。 */
+  object-fit:cover;
+  border:12px solid #F5F1EA;
+  box-shadow:26px 34px 0 rgba(0,0,0,.42),0 40px 90px rgba(0,0,0,.6)}
+
+/* 前景：大肥鱼。硬投影（0 模糊）是这套视觉的"贴纸感"来源 */
+#ipet{position:absolute;left:14px;bottom:-46px;width:506px;
+  filter:drop-shadow(18px 24px 0 rgba(0,0,0,.42))}
+#ipet img{width:100%;display:block}
+
+/* ══════════════════════════════════════════════════════════════
+   正片层：景深墙 + 常驻大肥鱼
+   ══════════════════════════════════════════════════════════════ */
+
+/* 远景墙：把封面那套三层景深延续到正片。
+   🔴 以前正片底是纯径向渐变，一块平色 —— 全片 30 秒里画框之外
+   什么都不发生，看着"素"。加一层压到几乎看不见的虚化截图墙，
+   画面有了材质，主体反而更立得住（模糊的墙 + 清晰的画框 = 景深）。
+   亮度必须压在 .2 以下，超过就跟画框抢视线。 */
+#bgwall{position:fixed;inset:-8%;z-index:-1;
+  background-size:50% 50%;background-repeat:no-repeat;
+  filter:blur(54px) brightness(.55) saturate(.7);
+  opacity:.15;transform:scale(1.08)}
+#bgveil{position:fixed;inset:0;z-index:-1;
+  background:radial-gradient(118% 88% at 50% 42%,
+    rgba(14,17,22,.5) 0%,rgba(14,17,22,.86) 62%,rgba(14,17,22,.96) 100%)}
+
+/* 常驻大肥鱼：系列签名，每一镜都在，越往后越小。
+   尺寸由 JS 按镜设置（--petw），不在这里写死 ——
+   写死的话第一镜和第五镜一样大，就失去"越走越收"的节奏。
+   🔴 bottom 必须是 0：素材（676×693）脚底正好压在下边界，
+   给负值会被画框的 overflow:hidden 横切一刀，鱼脚就没了。 */
+#pet{position:absolute;left:6px;bottom:0;width:var(--petw,240px);
+  z-index:5;transform-origin:left bottom;
+  filter:drop-shadow(14px 18px 0 rgba(0,0,0,.46));
+  transition:width .55s cubic-bezier(.22,1,.36,1),
+             opacity .3s ease-out,transform .45s cubic-bezier(.22,1,.36,1)}
+#pet img{width:100%;display:block;animation:petBob 3.6s ease-in-out infinite}
+@keyframes petBob{
+  0%,100%{transform:translateY(0) rotate(0deg)}
+  50%{transform:translateY(-7px) rotate(-.8deg)}
+}
+#pet.out{opacity:0;transform:translateY(18px) scale(.94)}
+
+/* 排版镜：大肥鱼挪到右下角。
+   🔴 不能留在左下 —— 排版镜的左栏从 x=88 起就是正文（眉题/标题/条目），
+   鱼摆左下会直接压住"装 Termux"这类大词。而右下角在便签卡片下方是空的，
+   正好是这块版面唯一的死区，鱼放进去等于把空白填了。 */
+#pet.petR{left:auto;right:10px;transform-origin:right bottom}
+#typebox.petr.hasfoot .foot{left:88px;right:88px}
+#typebox.petr.hasfoot .cols{padding-bottom:0}
+
+/* ══════════════════════════════════════════════════════════════
+   镜 4 专用版式：两端连线（duo）
+   借 video-shotcraft 的 integration-hub-map 骨架 ——
+   两端各一张卡，中间一条线，线上有脉冲往一个方向流动。
+   "连着"这件事只能靠**流动**表达：静止的线读作"两个东西并排"，
+   有脉冲才读作"数据正在过去"。这是这张卡唯一的核心动作。
+   ══════════════════════════════════════════════════════════════ */
+#duo{position:absolute;inset:0;z-index:3;padding:0 76px;
+  display:flex;align-items:center;gap:56px;
+  /* 🔴 用 visibility 不用 display:none。
+     display:none 的元素在变可见的那一帧才第一次被渲染，浏览器不会
+     为它启动过渡 —— 两端卡片的滑入、连线的生长会全部静默失效。
+     visibility:hidden 的盒子一直存在，过渡照常跑。 */
+  visibility:hidden}
+#duo.on{visibility:visible}
+#frame.duo #win,#frame.duo #plate{display:none}
+
+/* 左：说明牌（和镜 3 的右侧说明牌左右对称，一眼看出换了版式） */
+#duo .duoL{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:22px}
+#duo .cap{display:flex;align-items:flex-start;gap:16px}
+#duo .cap .bar{width:7px;align-self:stretch;min-height:52px;flex:none;
+  background:#D2452F;border-radius:2px;transform:scaleY(0);transform-origin:top}
+#duo.on .cap .bar{transform:scaleY(1);transition:transform .44s cubic-bezier(.22,1,.36,1) .1s}
+#duo .cap .t{font-size:52px;font-weight:900;line-height:1.24;letter-spacing:-1px;
+  color:#F5F1EA;opacity:0;transform:translateX(-12px)}
+#duo.on .cap .t{opacity:1;transform:none;
+  transition:opacity .3s ease-out .18s,transform .44s cubic-bezier(.22,1,.36,1) .18s}
+#duo .note{font-size:32px;font-weight:600;line-height:1.46;
+  color:rgba(245,241,234,.6);letter-spacing:.2px;
+  opacity:0;transform:translateY(12px)}
+#duo.on .note{opacity:1;transform:none;transition:opacity .34s ease-out .3s,transform .4s cubic-bezier(.22,1,.36,1) .3s}
+
+/* 右：两端 + 连线 */
+#duo .duoRow{flex:none;display:flex;align-items:center;gap:0}
+#duo .side{position:relative;width:286px;height:520px;flex:none;
+  border:10px solid #F5F1EA;border-radius:14px;overflow:hidden;
+  background:#12161C;
+  box-shadow:16px 20px 0 rgba(0,0,0,.44),0 26px 60px rgba(0,0,0,.62);
+  opacity:0}
+#duo .side img{width:100%;height:100%;object-fit:cover;
+  object-position:center top;display:block}
+/* 两端从各自一侧滑进来：左卡从左边来，右卡从右边来，
+   中间那条线在它们"碰头"的时候才亮 —— 顺序反了就像先有结果再有过程。 */
+#duo .side.a{transform:translateX(-46px)}
+#duo .side.b{transform:translateX(46px)}
+#duo.on .side.a{opacity:1;transform:none;
+  transition:opacity .34s ease-out,transform .5s cubic-bezier(.22,1,.36,1)}
+#duo.on .side.b{opacity:1;transform:none;
+  transition:opacity .34s ease-out .12s,transform .5s cubic-bezier(.22,1,.36,1) .12s}
+#duo .tag{position:absolute;left:0;top:0;padding:10px 20px;
+  font-size:26px;font-weight:800;letter-spacing:2.5px;
+  background:#D2452F;color:#F5F1EA;border-bottom-right-radius:12px}
+
+/* 连线：一条朱红细线 + 沿线上流动的亮点 */
+#duo .link{position:relative;width:320px;height:520px;flex:none;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
+#duo .wire{position:absolute;left:0;right:0;top:50%;height:2px;
+  background:linear-gradient(90deg,rgba(210,69,47,0),#D2452F 16%,#D2452F 84%,rgba(210,69,47,0));
+  transform:scaleX(0);transform-origin:left center}
+#duo.on .wire{transform:scaleX(1);
+  transition:transform .5s cubic-bezier(.22,1,.36,1) .3s}
+#duo .lbl{position:relative;z-index:2;font-size:32px;font-weight:900;
+  letter-spacing:4px;color:#D2452F;background:#12161C;padding:0 18px;
+  opacity:0}
+#duo .sub{position:relative;z-index:2;font-size:26px;font-weight:700;
+  letter-spacing:1px;color:rgba(245,241,234,.58);
+  background:#12161C;padding:0 16px;white-space:nowrap;
+  font-family:"Cascadia Mono",ui-monospace,monospace;opacity:0}
+#duo.on .lbl{opacity:1;transition:opacity .3s ease-out .46s}
+#duo.on .sub{opacity:1;transition:opacity .3s ease-out .6s}
+
+/* 脉冲：三个亮点同向、相位错开，循环流动。
+   同相位会读成"闪烁"，读不出"正在传输"。 */
+#duo .pulse{position:absolute;top:50%;left:0;width:9px;height:9px;border-radius:50%;
+  background:#FF7A5E;box-shadow:0 0 14px 4px rgba(210,69,47,.85);
+  transform:translate(-50%,-50%);opacity:0}
+#duo.on .pulse{opacity:1;animation:pulseRun 1.9s linear infinite}
+#duo.on .pulse.p2{animation-delay:.63s}
+#duo.on .pulse.p3{animation-delay:1.26s}
+@keyframes pulseRun{
+  0%{left:6%;opacity:0}
+  12%{opacity:1}
+  88%{opacity:1}
+  100%{left:94%;opacity:0}
+}
+
+/* ══════════════════════════════════════════════════════════════
+   镜 3 专用版式：剖面（core）
+   镜 1 是「全宽三手机 + 右数据卡」，镜 3 如果还是「截图 + 右牌」，
+   观众会觉得第二遍看同一张版 —— 规则 P4「一种手法全片只当一次主角」。
+   剖面要回答的是截图答不了的问题：**手机里到底装了什么**。
+   所以左边留手机，右边把内部拆成三层，用 SVG 的"引线"接过去。
+   ══════════════════════════════════════════════════════════════ */
+#core{position:absolute;inset:0;z-index:3;padding:0 58px;
+  display:flex;align-items:center;gap:96px;
+  /* 同 #duo：visibility 而不是 display，否则过渡不启动 */
+  visibility:hidden}
+#core.on{visibility:visible}
+#frame.core #win,#frame.core #plate{display:none}
+
+/* 左：手机实机。
+   🔴 2026-11-02 加真 3D：手机绕 Y 轴从 -46° 转到 -13°（不是转到 0）。
+   停在 0 就是一张平面截图；停在 -13° 保留透视，观众才读得出"这是个
+   立体的东西被打开了"。旋转期间右侧三层从手机背后抽出（translateZ +
+   rotateY 起始），两件事同一条时间线上跑，才像"拆开"而不是"换页"。 */
+#core .cl{position:relative;width:300px;flex:none;
+  perspective:1500px;perspective-origin:22% 48%}
+#core .cl img{width:100%;display:block;border-radius:26px;
+  box-shadow:0 34px 72px -22px rgba(0,0,0,.95),0 0 0 1px rgba(245,241,234,.09);
+  opacity:0;transform:rotateY(-46deg) translateZ(-70px) translateX(-26px)}
+#core.on .cl img{opacity:1;transform:rotateY(-13deg) translateZ(0);
+  transition:opacity .4s ease-out .04s,
+             transform .82s cubic-bezier(.22,1,.36,1) .04s}
+
+#core .cr{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:16px;
+  perspective:1400px;transform-style:preserve-3d}
+
+/* 引线（visualizer 那套 SVG 图解）：从手机右沿拉三条曲线接到每一层。
+   没有这三根线，"手机"和"三层"只是并排的两坨东西 —— 观众得自己
+   猜它们是什么关系。有了线，读作"这三层就在这台手机里"。
+   🔴 路径在 JS 里按实际布局算（getBoundingClientRect），不写死坐标：
+   层高会随文案变，写死就会出现"线插在字上"或者"线悬在空中"。 */
+#coreWire{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:visible}
+/* 虚线的长度和偏移全部由 JS 写内联样式：路径长度要 getTotalLength 才知道，
+   写死 600 会让"还没画"的线露出一截（dash 比路径短就直接可见）。 */
+#coreWire path{fill:none;stroke:rgba(210,69,47,.62);stroke-width:2.5;
+  stroke-linecap:round}
+
+#core .cap{display:flex;align-items:flex-start;gap:16px;margin-bottom:10px}
+#core .cap .bar{width:7px;align-self:stretch;min-height:54px;flex:none;
+  background:#D2452F;border-radius:2px;transform:scaleY(0);transform-origin:top}
+#core.on .cap .bar{transform:scaleY(1);transition:transform .44s cubic-bezier(.22,1,.36,1) .08s}
+#core .cap .t{font-size:50px;font-weight:900;line-height:1.22;letter-spacing:-1px;
+  color:#F5F1EA;opacity:0;transform:translateX(-12px)}
+#core.on .cap .t{opacity:1;transform:none;
+  transition:opacity .3s ease-out .16s,transform .44s cubic-bezier(.22,1,.36,1) .16s}
+
+/* 每一层：左侧一条朱红竖线 + 编号 + 名称 + 值。
+   三层依次从手机背后抽出，间隔 0.14s —— 同时出现读作"一坨"。
+   起始态带 rotateY，落位归零：读作"这三层是从机身里翻出来的"。 */
+#core .lay{position:relative;display:flex;align-items:center;gap:20px;
+  padding:20px 26px 20px 24px;border-radius:14px;
+  background:rgba(245,241,234,.06);
+  border-left:4px solid #D2452F;
+  transform-origin:left center;
+  opacity:0;transform:translateX(76px) rotateY(18deg)}
+#core.on .lay{opacity:1;transform:none;
+  transition:opacity .34s ease-out,transform .62s cubic-bezier(.22,1,.36,1)}
+#core.on .lay:nth-of-type(2){transition-delay:.26s}
+#core.on .lay:nth-of-type(3){transition-delay:.40s}
+#core.on .lay:nth-of-type(4){transition-delay:.54s}
+#core .lay .n{font-family:"Cascadia Mono",ui-monospace,monospace;
+  font-size:26px;font-weight:700;color:rgba(245,241,234,.32);flex:none}
+#core .lay .k{font-size:32px;font-weight:700;color:rgba(245,241,234,.58);
+  width:104px;flex:none;letter-spacing:1px}
+#core .lay .v{font-size:46px;font-weight:800;color:#F5F1EA;letter-spacing:-.8px}
+#core .lay .v em{font-style:normal;color:#FF6B4A}
+#core .lay.hot{background:rgba(210,69,47,.14)}
+
+/* 「不用 root」徽标：整镜的卖点，单独一枚，别混进层里 */
+#core .noroot{align-self:flex-start;margin-top:14px;display:inline-flex;align-items:center;gap:12px;
+  padding:14px 26px;border-radius:999px;
+  background:rgba(210,69,47,.16);border:1px solid rgba(210,69,47,.5);
+  font-size:32px;font-weight:800;color:#FF8B70;letter-spacing:.5px;
+  opacity:0;transform:translateY(12px)}
+#core.on .noroot{opacity:1;transform:none;transition:opacity .3s ease-out .74s,transform .44s cubic-bezier(.22,1,.36,1) .74s}
+#core .noroot .x{font-size:34px;color:#D2452F}
+
+/* ══════════════════════════════════════════════════════════════
+   镜 5 专用版式：合影收尾（finale）
+   规则 Q8：结尾把全片元素收拢围住字标，能量推到峰值。
+   前三镜的手机缩略图从上方飞下落在地址上方，形成"证据带"，
+   地址最后打字机打出来并压一下印 —— 这是全片唯一一次 scale 冲击。
+   ══════════════════════════════════════════════════════════════ */
+#finale{position:absolute;inset:0;z-index:3;padding:0 56px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;
+  visibility:hidden}
+#finale.on{visibility:visible}
+#frame.fin #win,#frame.fin #plate{display:none}
+
+#finale .thumbs{display:flex;gap:22px;align-items:flex-end;height:200px}
+/* 按**高度**对齐而不是宽度：竖屏手机截图和横屏仓库卡宽度差三倍，
+   按宽度对齐会变成一排高低不齐的方块。按高度对齐读作"一排证据"。 */
+#finale .thumbs img{height:200px;width:auto;display:block;border-radius:12px;
+  box-shadow:0 18px 34px -14px rgba(0,0,0,.95);
+  opacity:0;transform:translateY(-88px) rotate(-8deg)}
+#finale.on .thumbs img{opacity:1;transform:none;
+  transition:opacity .34s ease-out,transform .58s cubic-bezier(.22,1,.36,1)}
+#finale.on .thumbs img:nth-child(2){transition-delay:.1s}
+#finale.on .thumbs img:nth-child(3){transition-delay:.2s}
+
+#finale .addr{text-align:center;transform-origin:center center}
+#finale .addr .line{font-family:"Cascadia Mono",ui-monospace,monospace;
+  font-size:54px;font-weight:700;line-height:1.34;letter-spacing:-1.5px;
+  color:#F5F1EA;white-space:nowrap}
+#finale .addr .line.big{font-size:62px;color:#FF6B4A;font-weight:800}
+#finale .addr .caret{display:inline-block;width:3px;height:.92em;margin-left:4px;
+  background:#FF6B4A;vertical-align:-.08em;animation:caretBlink .7s steps(1) infinite}
+@keyframes caretBlink{0%,49%{opacity:1}50%,100%{opacity:0}}
+
+#finale .meta{display:flex;align-items:center;gap:20px;
+  font-size:34px;font-weight:800;color:rgba(245,241,234,.58);letter-spacing:.8px;
+  opacity:0;transform:translateY(12px)}
+#finale.on .meta{opacity:1;transform:none;
+  transition:opacity .32s ease-out .62s,transform .4s cubic-bezier(.22,1,.36,1) .62s}
+#finale .meta .sep{color:rgba(245,241,234,.22)}
+#finale .meta .hot{color:#FF6B4A}
+
+</style>
+</head>
+<body>
+<div id="bgwall"></div>
+<div id="bgveil"></div>
+<div id="top">
+  <span id="ep">01</span>
+  <span id="slash">/</span>
+  <span id="series">GITHUB 项目推荐</span>
+</div>
+
+<div id="frame">
+  <div id="win">
+    <div id="shotIn"><img id="shot" alt=""></div>
+    <div id="typebox"></div>
+  </div>
+  <div id="plate">
+    <div id="card">
+      <div class="k" id="cardK"></div>
+      <div class="v" id="cardV"></div>
+      <div class="s" id="cardS"></div>
+    </div>
+    <div id="key"><span class="bar"></span><span class="t" id="keyT"></span></div>
+  </div>
+  <!-- 镜 4 专用：两端连线。和 #win/#plate 互斥，由 JS 切换 -->
+  <div id="duo">
+    <div class="duoL">
+      <div class="cap"><span class="bar"></span><span class="t" id="duoCap"></span></div>
+      <div class="note" id="duoNote"></div>
+    </div>
+    <div class="duoRow">
+      <div class="side a"><img id="duoA" alt=""><span class="tag" id="duoTagA">本机</span></div>
+      <div class="link">
+        <span class="lbl">SSH</span>
+        <div class="wire"></div>
+        <span class="sub" id="duoSub">192.168.1.20</span>
+        <span class="pulse p1"></span><span class="pulse p2"></span><span class="pulse p3"></span>
+      </div>
+      <div class="side b"><img id="duoB" alt=""><span class="tag" id="duoTagB">电脑</span></div>
+    </div>
+  </div>
+  <!-- 镜 3 专用：剖面。左手机 + 右三层，把"手机里装了什么"拆开 -->
+  <div id="core">
+    <svg id="coreWire" viewBox="0 0 1800 700" preserveAspectRatio="none"></svg>
+    <div class="cl"><img id="coreImg" alt=""></div>
+    <div class="cr">
+      <div class="cap"><span class="bar"></span><span class="t" id="coreCap"></span></div>
+      <div class="lay" id="coreL0"><span class="n">01</span><span class="k" id="coreK0"></span><span class="v" id="coreV0"></span></div>
+      <div class="lay hot" id="coreL1"><span class="n">02</span><span class="k" id="coreK1"></span><span class="v" id="coreV1"></span></div>
+      <div class="lay" id="coreL2"><span class="n">03</span><span class="k" id="coreK2"></span><span class="v" id="coreV2"></span></div>
+      <div class="noroot"><span class="x">✕</span><span id="coreNoRoot">不需要 root</span></div>
+    </div>
+  </div>
+  <!-- 镜 5 专用：合影收尾。元素飞入围住地址 -->
+  <div id="finale">
+    <div class="thumbs" id="finThumbs"></div>
+    <div class="addr" id="finAddr"></div>
+    <div class="meta" id="finMeta"></div>
+  </div>
+  <!-- 常驻大肥鱼：每一镜都在，尺寸按镜缩 -->
+  <div id="pet"><img id="petImg" alt=""></div>
+</div>
+
+<div id="sub"></div>
+<div id="foot"><span class="dot"></span><span id="repo"></span></div>
+
+<!-- 封面层：转场结束后整层隐藏 -->
+<div id="intro">
+  <div id="iwall"></div>
+  <div id="iscrim"></div>
+  <div id="ishotWrap"><img id="ishot" alt=""></div>
+  <div id="ihead">
+    <div id="ibrand">GITHUB 项目推荐</div>
+    <div id="ibig"></div>
+    <div id="isub"></div>
+  </div>
+  <div id="ipet"><img id="ipetImg" alt=""></div>
+</div>
+
+<script src="vendor/gsap.min.js"></script>
+<script>
+/* ──────────────────────────────────────────────────────────────
+ * 时间轴：和 diary/talk 同一套协议 —— __READY__ 之后才算正片，
+ * 到 dur 设 __DONE__，make.mjs 靠这两个标记切录像头尾。
+ *
+ * 两段结构：
+ *   ① intro（0 ~ 1.35s）：封面四要素站住 0.85s → 0.5s 解构转场
+ *   ② 正片（0.94s ~ dur）：5 镜，一镜一个卖点
+ *
+ * 🔴 转场为什么和第一句口播重叠：配音 0 秒就开始念钩子，
+ * 画面 0.3s 后才开始拆封面。声音先到，画面跟上 —— 观众不会觉得
+ * "等了半秒"，只会觉得"这个片头很利索"。反过来等转场演完再开口，
+ * 那 1 秒就是纯浪费。
+ *
+ * 镜间切换是**硬切**（只换内容 + 元素级入场）：30 秒里花 0.4 秒
+ * 做整屏转场等于白扔一帧信息量。但**镜内**必须有动 ——
+ * 入场位移 / 划线生长 / 数字滚动 / 红条拉伸，四个动作各管一件事，
+ * 不是给同一个 scale 加时长。
+ *
+ * 数据结构：
+ *   { dur, starts[], episode, series, repo,
+ *     cover: { big, sub, brand, shot, wall[], pet },
+ *     shots: [{ img, pos, kicker, big, small, key, text, win }] }
+ *   · cover 缺省就跳过 intro，直接从第一镜开始（老脚本兼容）
+ *   · big 有值才出数据卡；key 有值才出关键词行
+ *   · win 有值就走纯排版（img 被藏起来）
+ * ────────────────────────────────────────────────────────────── */
+window.__REVIEW__ = async function (d) {
+  const shots = d.shots || []
+  const dur = Number(d.dur) || 30
+  const starts = Array.isArray(d.starts) && d.starts.length === shots.length
+    ? d.starts.map((v, i) => (i === 0 ? 0 : Number(v)))
+    : shots.map((_, i) => i * dur / Math.max(1, shots.length))
+
+  document.getElementById('ep').textContent = String(d.episode || 1).padStart(2, '0')
+  document.getElementById('series').textContent = d.series || 'GITHUB 项目推荐'
+  document.getElementById('repo').textContent = d.repo || ''
+
+  const img = document.getElementById('shot')
+  const shotIn = document.getElementById('shotIn')
+  const card = document.getElementById('card')
+  const key = document.getElementById('key')
+  const sub = document.getElementById('sub')
+  const frame = document.getElementById('frame')
+  const topbar = document.getElementById('top')
+  const foot = document.getElementById('foot')
+  const intro = document.getElementById('intro')
+  const sleep = ms => new Promise(r => setTimeout(r, ms))
+
+  /* 字幕富文本：**关键词** 标朱红。
+     TTS 那边由 make.mjs 的 stripMark 先把标记剥掉，所以这里当富文本用是安全的。 */
+  const esc0 = t => String(t == null ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const renderSub = t => esc0(t).replace(/\*\*([^*]+)\*\*/g, '<span class="hl">$1</span>')
+
+  /* 预载：不预载的话第一帧是白的，录出来开头会闪一下。
+     封面的图和正片的图都要等 —— 转场那一刻才加载就来不及了。 */
+  const urls = []
+  for (const s of shots) {
+    if (s.img) urls.push(s.img)
+    if (s.win && s.win.bg) urls.push(s.win.bg)
+    if (s.duo) { if (s.duo.a) urls.push(s.duo.a); if (s.duo.b) urls.push(s.duo.b) }
+  }
+  if (d.cover) {
+    if (d.cover.shot) urls.push(d.cover.shot)
+    if (d.cover.pet) urls.push(d.cover.pet)
+    for (const u of (d.cover.wall || [])) urls.push(u)
+  }
+  if (d.pet) urls.push(d.pet)
+  await Promise.all(urls.map(u => new Promise(res => {
+    const im = new Image()
+    im.onload = im.onerror = res
+    im.src = u
+  })))
+
+  /* ── 常驻层：景深墙 + 大肥鱼 ────────────────────────────────
+     这两样不跟镜走，是整片的地基。墙只在开头设一次（静态，
+     动它会抢主体视线）；鱼在每镜换尺寸。 */
+  {
+    const seen = new Set()
+    const pool = []
+    for (const s of shots) {
+      for (const u of [s.img, s.duo && s.duo.a, s.duo && s.duo.b, s.win && s.win.bg]) {
+        if (u && !seen.has(u)) { seen.add(u); pool.push(u) }
+      }
+    }
+    if (pool.length) {
+      const four = [0, 1, 2, 3].map(i => pool[i % pool.length])
+      const w = document.getElementById('bgwall')
+      w.style.backgroundImage = four.map(u => `url("${u}")`).join(',')
+      w.style.backgroundSize = four.map(() => '50% 50%').join(',')
+      w.style.backgroundPosition = '0% 0%,100% 0%,0% 100%,100% 100%'
+    }
+    const petUrl = d.pet || (d.cover && d.cover.pet) || ''
+    if (petUrl) document.getElementById('petImg').src = petUrl
+  }
+
+  const hasIntro = !!(d.cover && d.cover.big)
+  if (hasIntro) {
+    /* 正片层先藏起来，等转场把它点亮。这里必须在第一帧之前设完 ——
+       __REVIEW__ 是同步入口，设完之后浏览器才排第一帧，所以不会闪。 */
+    frame.style.opacity = '0'
+    /* 边框从 0 开始，转场落地时再亮起来 —— 画框是"被装裱上去"的，
+       不是一开始就摆在那儿等着。 */
+    frame.style.borderColor = 'rgba(245,241,234,0)'
+    topbar.style.opacity = '0'
+    foot.style.opacity = '0'
+
+    const c = d.cover
+    /* 远景墙：四格各铺一张不同的截图。单图重复铺出来是规则的色块阵列，
+       模糊后一眼就能看出"同一张图"——那就不是"一堆界面"了。
+       图不够四张就循环补齐，别留空格子（留空会露出深色底，墙就破了）。 */
+    const wallSrc = (c.wall && c.wall.length) ? c.wall : [c.shot]
+    if (wallSrc.length) {
+      const four = [0, 1, 2, 3].map(i => wallSrc[i % wallSrc.length])
+      const iwall = document.getElementById('iwall')
+      iwall.style.backgroundImage = four.map(u => `url("${u}")`).join(',')
+      iwall.style.backgroundRepeat = 'no-repeat'
+      iwall.style.backgroundSize = four.map(() => '50% 50%').join(',')
+      iwall.style.backgroundPosition = '0% 0%,100% 0%,0% 100%,100% 100%'
+    }
+    document.getElementById('ibrand').textContent = c.brand || 'GITHUB 项目推荐'
+    document.getElementById('ibig').textContent = c.big
+    document.getElementById('isub').textContent = c.sub || ''
+    document.getElementById('ishot').src = c.shot || (shots[0] && shots[0].img) || ''
+    /* 和第一镜的 #shot 用同一个 object-position：转场落地的两张图
+       必须逐像素对得上，差 1% 都能看出"跳了一下"。 */
+    document.getElementById('ishot').style.objectPosition = (shots[0] && shots[0].pos) || '50% 0%'
+    if (c.pet) document.getElementById('ipetImg').src = c.pet
+  } else {
+    intro.style.display = 'none'
+  }
+
+  /* ── 内容层：只负责"摆什么"，不管"怎么进场" ───────────────── */
+  let cur = -1
+  function apply(i) {
+    cur = i
+    const s = shots[i] || {}
+    const typebox = document.getElementById('typebox')
+    const duo = document.getElementById('duo')
+
+    /* 大肥鱼：每一镜都在，越往后越小。
+       尺寸是"镜序"的函数，所以写在 JS 里跟着分镜走，不散进样式表。
+       🔴 别调大：鱼是签名不是主体，超过 210 就会盖住截图里的手机。 */
+    const petEl = document.getElementById('pet')
+    const petW = s.petW || [205, 175, 170, 165, 170][Math.min(i, 4)] || 170
+    petEl.style.setProperty('--petw', petW + 'px')
+
+    /* 排版镜把鱼挪到右下（左下是正文），其余镜留在左下角。
+       剖面镜（core）也算：左边就是手机，鱼摆左下会挡住屏幕。 */
+    const isTypeShot = !!s.win
+    const petRight = isTypeShot || !!s.core
+    petEl.classList.toggle('petR', petRight)
+    typebox.classList.toggle('petr', isTypeShot)
+
+    frame.classList.toggle('duo', !!s.duo)
+    frame.classList.toggle('core', !!s.core)
+    frame.classList.toggle('fin', !!s.fin)
+
+    const coreEl = document.getElementById('core')
+    const finEl = document.getElementById('finale')
+
+    if (s.core) {
+      /* 镜 3 剖面：左手机 + 右三层 */
+      img.style.display = 'none'
+      shotIn.style.display = 'none'
+      typebox.className = ''
+      typebox.innerHTML = ''
+      duo.className = ''
+      finEl.className = ''
+      document.getElementById('coreImg').src = s.core.img || s.img || ''
+      document.getElementById('coreCap').textContent = s.core.cap || ''
+      ;(s.core.layers || []).slice(0, 3).forEach((l, n) => {
+        const kEl = document.getElementById('coreK' + n)
+        const vEl = document.getElementById('coreV' + n)
+        if (!kEl || !vEl) return
+        kEl.textContent = l.k || ''
+        vEl.innerHTML = String(l.v || '').replace(/\*([^*]+)\*/g, '<em>$1</em>')
+      })
+      document.getElementById('coreNoRoot').textContent = s.core.noroot || '免 root、免 Termux'
+
+      /* 引线：从手机右沿接到每一层。
+         🔴 坐标要混着用，两种量法各有一个坑：
+         · `.cl` / `.cr` 没有 transform，用 getBoundingClientRect 准；
+         · `.lay` 此刻挂着 translateX(76px) rotateY(18deg)，rect 量到的是
+           投影后的盒子，会偏 76px —— 只能用 offsetTop/offsetLeft（布局值）。
+         · 但 `.lay` 的 offsetParent 不是 #core，而是 `.cr`（perspective
+           会建立包含块），所以 offset 是相对 .cr 的，必须再加 .cr 的位置。
+           直接用 l.offsetLeft 会把三条线全画到画框最左边（x=2）。 */
+      const wire = document.getElementById('coreWire')
+      const coreRect = coreEl.getBoundingClientRect()
+      const crEl = coreEl.querySelector('.cr')
+      const crRect = crEl.getBoundingClientRect()
+      const clRect = coreEl.querySelector('.cl').getBoundingClientRect()
+      const x1 = clRect.right - coreRect.left - 4
+      const y1 = clRect.top - coreRect.top + clRect.height * 0.46
+      wire.innerHTML = Array.from(coreEl.querySelectorAll('.lay')).map(l => {
+        const x2 = crRect.left - coreRect.left + l.offsetLeft + 2
+        const y2 = crRect.top - coreRect.top + l.offsetTop + l.offsetHeight / 2
+        const mx = x1 + (x2 - x1) * 0.55
+        return `<path d="M${x1.toFixed(1)},${y1.toFixed(1)} ` +
+          `C${mx.toFixed(1)},${y1.toFixed(1)} ${mx.toFixed(1)},${y2.toFixed(1)} ` +
+          `${x2.toFixed(1)},${y2.toFixed(1)}"/>`
+      }).join('')
+      /* 先量长度、把 dashoffset 顶到全长（=线完全不可见），
+         真正"画出来"由 enter() 触发，这样每镜重播都能重新长一次。 */
+      Array.from(wire.querySelectorAll('path')).forEach(p => {
+        const len = Math.ceil(p.getTotalLength()) + 2
+        p.style.strokeDasharray = len
+        p.style.strokeDashoffset = len
+      })
+      sub.innerHTML = renderSub(s.text)
+      return
+    }
+    coreEl.className = ''
+
+    if (s.fin) {
+      /* 镜 5 合影收尾：缩略图 + 地址 + 元信息 */
+      img.style.display = 'none'
+      shotIn.style.display = 'none'
+      typebox.className = ''
+      typebox.innerHTML = ''
+      duo.className = ''
+      document.getElementById('finThumbs').innerHTML =
+        (s.fin.thumbs || []).slice(0, 3).map(u => `<img src="${u}" alt="">`).join('')
+      document.getElementById('finMeta').innerHTML = (s.fin.meta || []).slice(0, 4)
+        .map((m, n) => (n ? '<span class="sep">·</span>' : '') +
+          `<span class="${m.hot ? 'hot' : ''}">${esc0(m.t)}</span>`).join('')
+      document.getElementById('finAddr').innerHTML = ''
+      document.getElementById('finAddr').style.transform = ''
+      sub.innerHTML = renderSub(s.text)
+      return
+    }
+    finEl.className = ''
+
+    if (s.duo) {
+      /* 镜 4 专用版式：两端连线。
+         左说明牌 + 右两张卡 + 中间脉冲线，和镜 3 的"大图+右牌"左右对称，
+         一眼能看出换了版式。 */
+      img.style.display = 'none'
+      shotIn.style.display = 'none'
+      typebox.className = ''
+      typebox.innerHTML = ''
+      document.getElementById('duoCap').textContent = s.duo.cap || ''
+      document.getElementById('duoNote').textContent = s.duo.note || ''
+      document.getElementById('duoA').src = s.duo.a || ''
+      document.getElementById('duoB').src = s.duo.b || ''
+      document.getElementById('duoTagA').textContent = s.duo.tagA || '本机'
+      document.getElementById('duoTagB').textContent = s.duo.tagB || '电脑'
+      document.getElementById('duoSub').textContent = s.duo.sub || ''
+      duo.className = 'on'
+      sub.innerHTML = renderSub(s.text)
+      return
+    }
+    duo.className = ''
+
+    if (s.win) {
+      /* 纯排版镜：藏掉截图，改渲染文字层 */
+      img.style.display = 'none'
+      shotIn.style.display = 'none'
+      const isUrl = s.win.kind === 'url'
+      /* 🔴 2026-11-02：底栏（foot）和眉题（kicker）整块删了。
+         推荐类视频里每一行字都要能在手机上直接读清。底栏那种
+         「17px 术语 + 27px 释义」在 1080 宽的画面上就是噪点：
+         观众不会读，只会觉得画面脏、眼睛累。
+         信息不够就放大字号、加真信息，不许拿小字填空。 */
+      const cls = 'on petr' + (isUrl ? ' url' : '')
+      const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      /* 标题逐字出场：每个字包一层 .ch，靠 transitionDelay 错峰。
+         🔴 *词* 必须**整体**包在 <em> 里，不能把字拆到 em 外面 ——
+         马克笔底划是 em 的 ::after，拆开就变成三截碎线。 */
+      const mk = t => String(t || '').split(/(\*[^*]+\*)/).filter(Boolean).map(seg => {
+        if (seg.length > 1 && seg.startsWith('*') && seg.endsWith('*')) {
+          return `<em>${Array.from(seg.slice(1, -1))
+            .map(c => `<span class="ch">${esc(c)}</span>`).join('')}</em>`
+        }
+        return Array.from(seg)
+          .map(c => c === ' ' ? ' ' : `<span class="ch">${esc(c)}</span>`).join('')
+      }).join('')
+
+      /* 🔴 先挂空类，把元素摆成"未入场"的初始态，设好每条目的延时，
+         强制一次回流，**最后**才点亮 .on。
+         顺序反了就全废：先挂 .on，浏览器会立刻按 delay:0 起跑过渡，
+         之后再写 transitionDelay 只是改一个已经用掉的值 —— 条目会
+         一起出现，等于没做错峰。这个错不报错，只是动画白写。 */
+      typebox.className = ''
+
+      if (isUrl) {
+        /* url 型：左侧仓库地址大字 + 下方一条朱红短横 + 一句话定位，
+           右侧纸白便签放"坦白"（这一镜的收尾信息）。 */
+        typebox.innerHTML =
+          (s.win.bg ? `<div class="bgimg" style="background-image:url('${s.win.bg}')"></div>` : '') +
+          `<div class="veil"></div>` +
+          `<div class="cols">` +
+          `<div class="colL">` +
+          (s.win.lines || []).map(t => `<div class="line">${esc(t)}</div>`).join('') +
+          (s.win.note ? `<div class="note">${esc(s.win.note)}</div>` : '') +
+          `</div>` +
+          (s.win.card
+            ? `<div class="colR"><div class="pcard">` +
+              `<div class="k">${esc(s.win.card.k)}</div>` +
+              `<div class="v">${esc(s.win.card.v)}</div>` +
+              (s.win.card.s ? `<div class="s">${esc(s.win.card.s)}</div>` : '') +
+              `</div></div>`
+            : '') +
+          `</div>`
+      } else if ((s.win.items || []).length) {
+        /* 文本型（左文右卡 + 底栏释义）：
+           条目文字可以带 ~~删除线~~ 语法，和旧版行为一致。 */
+        const items = s.win.items.map(it => {
+          const t = it.strike
+            ? `<span class="strike">${esc(it.t)}</span>`
+            : esc(it.t)
+          const d = it.d ? `<span class="d">${esc(it.d)}</span>` : ''
+          return `<div class="item"><span class="t">${t}</span>${d}</div>`
+        }).join('')
+        typebox.innerHTML =
+          (s.win.bg ? `<div class="bgimg" style="background-image:url('${s.win.bg}')"></div>` : '') +
+          `<div class="veil"></div>` +
+          `<div class="cols">` +
+          `<div class="colL">` +
+          (s.win.title ? `<div class="ttl">${mk(s.win.title)}</div>` : '') +
+          `<div class="items">${items}</div>` +
+          `</div>` +
+          (s.win.card
+            ? `<div class="colR"><div class="pcard">` +
+              `<div class="k">${esc(s.win.card.k)}</div>` +
+              `<div class="v">${esc(s.win.card.v)}</div>` +
+              (s.win.card.s ? `<div class="s">${esc(s.win.card.s)}</div>` : '') +
+              `</div></div>`
+            : '') +
+          `</div>`
+      } else {
+        /* 兜底：老脚本只给 lines，居中大字 */
+        typebox.innerHTML =
+          (s.win.bg ? `<div class="bgimg" style="background-image:url('${s.win.bg}')"></div>` : '') +
+          `<div class="veil"></div>` +
+          `<div class="cols"><div class="colL">` +
+          (s.win.title ? `<div class="ttl">${mk(s.win.title)}</div>` : '') +
+          `<div class="lines">` +
+          (s.win.lines || []).map(t =>
+            `<div class="line">${esc(t).replace(/~~(.+?)~~/g, '<span class="strike">$1</span>')}</div>`
+          ).join('') +
+          (s.win.note ? `<div class="note">${esc(s.win.note)}</div>` : '') +
+          `</div></div></div>`
+      }
+
+      /* 条目错峰：每条晚 0.08s 上浮，第一条从 0.13s 起。
+         全部同时上浮 = 没有上浮，等于一张静态图。 */
+      const itemEls = Array.from(typebox.querySelectorAll('.item'))
+      itemEls.forEach((el, n) => {
+        el.style.transitionDelay = (0.13 + n * 0.08).toFixed(2) + 's'
+      })
+      /* 标题逐字：每字 0.035s，从 0.08s 起。8 个字走完 0.36s，
+         刚好在便签压下来之前收住。 */
+      const chars = Array.from(typebox.querySelectorAll('.ttl .ch'))
+      chars.forEach((el, n) => {
+        el.style.transitionDelay = (0.08 + n * 0.035).toFixed(3) + 's'
+      })
+      typebox.className = cls          // 只负责显示，此时所有元素还是初始态
+      void typebox.offsetWidth
+      /* 下一帧再挂 .in —— 见 CSS 里的说明，同一帧里从 display:none
+         变成可见的元素，过渡不会启动。 */
+      requestAnimationFrame(() => {
+        if (cur === i) typebox.classList.add('in')
+      })
+    } else {
+      typebox.className = ''
+      typebox.innerHTML = ''
+      img.style.display = 'block'
+      shotIn.style.display = 'block'
+      if (s.img) {
+        img.src = s.img
+        img.style.objectPosition = s.pos || '50% 0%'
+      }
+      /* 重置推镜：先撤 transition 回到 1，强制回流，再挂回去重新开始推。
+         少了这次回流，浏览器只算一遍样式，看不到 scale 归零的那一帧，
+         推镜就不会重新开始 —— 从第二镜起画面是静止的。 */
+      img.style.transition = 'none'
+      img.classList.remove('push')
+      void img.offsetWidth
+      img.style.transition = ''
+      img.classList.add('push')
+    }
+
+    if (s.big) {
+      document.getElementById('cardK').textContent = s.kicker || ''
+      document.getElementById('cardV').textContent = s.big
+      document.getElementById('cardS').textContent = s.small || ''
+    }
+    document.getElementById('keyT').textContent = s.key || ''
+    /* 关键词和数据卡都没有时，说明牌是空的：让截图区吃满画框，
+       别在右边留一块黑板加一条没必要的分割线 */
+    frame.classList.toggle('full', !s.key && !s.big)
+    sub.innerHTML = renderSub(s.text)
+  }
+
+  /* ── 动效层：一镜四个动作，各管一件事 ─────────────────────── */
+  function countUp(el, text, ms) {
+    /* 4.4k 从 0 数到 4.4k。"数字在长"比"数字出现"多一层意思 ——
+       观众读到的是增速，不是一个静态结论。带单位的字符串也能滚：
+       只滚前面的数字，后缀（k / ★ / %）原样钉住。 */
+    const m = String(text).match(/^(\d+(?:\.\d+)?)(.*)$/)
+    if (!m) { el.textContent = text; return }
+    const target = parseFloat(m[1])
+    const suffix = m[2] || ''
+    const dec = (m[1].split('.')[1] || '').length
+    const t0 = performance.now()
+    ;(function tick() {
+      const p = Math.min(1, (performance.now() - t0) / ms)
+      const e = 1 - Math.pow(1 - p, 3)
+      el.textContent = (target * e).toFixed(dec) + suffix
+      if (p < 1) requestAnimationFrame(tick)
+    })()
+  }
+
+  /* 文字解码（text scramble，借 react-bits 的 scramble-text）。
+     和打字机的区别是**版面不跳**：打字机从 0 个字长到满，等宽地址会
+     把右边的东西一路顶开；scramble 一开始就占满整行，只有内容在变。
+     地址这种 20 多字符的等宽串用它，落定那一刻读作"解析出来了"，
+     比"一个一个字敲"更像极客界面，也顺便解决了打字机的抖动。
+     🔴 乱码字符集只留大写字母 + 数字 + 三个符号：小写字母在等宽字体里
+     宽度和高宽比都不同，混进去会让整行在解码过程中轻微跳动。 */
+  function scramble(el, lines, totalMs, onDone) {
+    const GLYPH = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789/._-'
+    const rows = (lines || []).map(t => Array.from(String(t)))
+    if (!rows.length) { onDone && onDone(); return }
+    el.innerHTML = rows.map((_, i) =>
+      `<div class="line${i === rows.length - 1 ? ' big' : ''}"></div>`).join('')
+    const divs = Array.from(el.children)
+    const total = rows.reduce((a, r) => a + r.length, 0)
+    if (!total) { onDone && onDone(); return }
+    const t0 = performance.now()
+    ;(function tick() {
+      const p = Math.min(1, (performance.now() - t0) / totalMs)
+      /* 按位置逐字解锁：p 走到 1 时最后一个字才定格。
+         前松后紧（pow 1.6）读作"越解越快"，线性读作"卡住了"。 */
+      const locked = Math.pow(p, 1.6) * total
+      let idx = 0
+      rows.forEach((row, i) => {
+        let out = ''
+        for (const ch of row) {
+          out += idx < locked || p >= 1
+            ? ch
+            : (ch === ' ' ? ' ' : GLYPH[(Math.random() * GLYPH.length) | 0])
+          idx++
+        }
+        divs[i].textContent = out
+      })
+      if (p < 1) requestAnimationFrame(tick)
+      else onDone && onDone()
+    })()
+  }
+
+  function enter(skipShotIn) {
+    const s = shots[cur] || {}
+
+    /* ⓪ 剖面镜 / 收尾镜：各自整层点亮。都是 visibility:hidden 的常驻盒子，
+       盒子一直在，所以挂 .on 时过渡会正常启动。 */
+    if (s.core) {
+      const c = document.getElementById('core')
+      c.classList.remove('on')
+      void c.offsetWidth
+      c.classList.add('on')
+      /* 引线逐条画出来，每条比它那一层晚 0.06s 起 ——
+         线先长、层再落，读作"这三层是被这几根线拉出来的"。
+         反过来（层先到、线补上）就成了事后画箭头，没有因果。 */
+      Array.from(c.querySelectorAll('#coreWire path')).forEach((p, n) => {
+        p.style.transition = 'none'
+        p.style.strokeDashoffset = p.style.strokeDasharray || '600'
+        void p.getBoundingClientRect()
+        p.style.transition = 'stroke-dashoffset .6s cubic-bezier(.4,0,.2,1)'
+        p.style.transitionDelay = (0.18 + n * 0.14).toFixed(2) + 's'
+        p.style.strokeDashoffset = '0'
+      })
+      sub.classList.remove('on')
+      setTimeout(() => sub.classList.add('on'), 60)
+      return
+    }
+    if (s.fin) {
+      const f = document.getElementById('finale')
+      f.classList.remove('on')
+      void f.offsetWidth
+      f.classList.add('on')
+      scramble(document.getElementById('finAddr'), s.fin.lines || [], 640, () => {
+        /* 解码完成压一下印 —— 全片唯一一次 scale 冲击，对应 impact 音效 */
+        const a = document.getElementById('finAddr')
+        a.style.transition = 'transform .16s cubic-bezier(.3,0,.2,1)'
+        a.style.transform = 'scale(1.045)'
+        setTimeout(() => {
+          a.style.transition = 'transform .34s cubic-bezier(.22,1,.36,1)'
+          a.style.transform = 'scale(1)'
+        }, 150)
+      })
+      sub.classList.remove('on')
+      setTimeout(() => sub.classList.add('on'), 60)
+      return
+    }
+
+    /* ① 截图入场：从右侧推上来。只做位移不做缩放 ——
+       缩放已经被推镜占着了，两个 scale 叠在一起会互相抵消。
+       🔴 skipShotIn：片头转场结束后的第一镜必须跳过这一步。
+       转场刚把同一张图送进画框，这里再播一次「从 opacity 0 淡入」，
+       等于把刚落地的东西又抹掉重画一遍 —— 成片上就是 0.9~1.4s
+       一帧明显发暗（画框还在，图没了）。这个暗帧不报错，只看日志
+       完全发现不了，只有拼连续帧才看得见。 */
+    if (!s.win && !s.duo && !skipShotIn) {
+      shotIn.classList.remove('enter')
+      void shotIn.offsetWidth
+      shotIn.classList.add('enter')
+    }
+
+    /* ② 数据卡：弹入 + 数字滚动 */
+    if (s.big) {
+      card.classList.remove('on')
+      void card.offsetWidth
+      card.classList.add('on')
+      countUp(document.getElementById('cardV'), s.big, 760)
+    } else {
+      card.classList.remove('on')
+    }
+
+    /* ③ 关键词：红条拉伸，字延后 0.13s 跟上 */
+    key.classList.remove('on')
+    if (s.key) {
+      void key.offsetWidth
+      key.classList.add('on')
+    }
+
+    /* ④ 字幕：口播原文，上浮淡入 */
+    sub.classList.remove('on')
+    setTimeout(() => sub.classList.add('on'), 60)
+
+    /* ⑤ 划线：逐行生长。第一行先划，第二行跟 0.16s ——
+       同时划掉两个词，观众不知道先看哪个。
+       条目错峰在 apply() 里做完了，这里只管划线。 */
+    if (s.win) {
+      const strikes = Array.from(document.querySelectorAll('#typebox .strike'))
+      strikes.forEach((el, n) => {
+        el.classList.remove('on')
+        setTimeout(() => el.classList.add('on'), 230 + n * 150)
+      })
+    }
+  }
+
+  apply(0)
+
+  /* ── 封面 → 正片：0.78s 装裱 ──────────────────────────────────
+   * 2026-11-02 重做。旧版是"四件事同一帧起跑 + 白边淡掉"，
+   * 两个毛病叠在一起，成片读作"整屏炸开然后糊一下"：
+   *
+   *   ① **四件事同时起步**：大字缩、鱼飞出、墙淡掉、截图飞向画框
+   *      全在 t=0。观众的眼睛不知道跟谁走，结果什么都没看清。
+   *      现在分两拍：先让"字和鱼退"（0~0.16），截图**后**起飞（0.16）。
+   *      退场先完成，注意力才交到那张图上 —— 这是因果，不是节奏问题。
+   *
+   *   ② **白边是"淡掉"的**：12px 白边 fade 成透明，读作"图坏了"。
+   *      现在白边**收缩成画框的 1px 边**（borderWidth 12→1 同步变色），
+   *      读作"这张图被装进画框"。同一件事，两个读法，差在有没有"去向"。
+   *
+   *   ③ 落地瞬间右侧说明牌推入。旧版落地后右半边是空的，要等下一拍
+   *      数据卡才弹出来，中间 0.2 秒读作"卡住了"。
+   *
+   * 用 GSAP 的时间轴而不是一堆 setTimeout：这里 7 条动画互相咬合，
+   * 用 sleep 排队改一个数字就得重算后面所有延时。vendored 在
+   * vendor/gsap.min.js（本地文件，file:// 直接可用，不走网络）。
+   * ──────────────────────────────────────────────────────────── */
+  async function playIntro() {
+    const wrap = document.getElementById('ishotWrap')
+    const ishot = document.getElementById('ishot')
+    const ihead = document.getElementById('ihead')
+    const ipet = document.getElementById('ipet')
+    const iwall = document.getElementById('iwall')
+    const iscrim = document.getElementById('iscrim')
+    const plate = document.getElementById('plate')
+
+    /* ① 封面站住 0.85s。四要素一个都不看就直接拆，等于白做了这张封面。 */
+    await sleep(850)
+
+    /* ② 算落点。必须让封面那张图和 #shot **同一裁切**：
+       先把 #ishot 的高度按画框比例定死（含 12px 白边），再整体缩放到
+       画框大小。不这么做的话，封面图按原始比例显示、#shot 用
+       object-fit:cover 裁，两者裁切不同 —— 交叉淡出那一下会看到
+       画面"跳"一格，就是用户说的"过渡没做好"。 */
+    const B = 12
+    const winW = document.getElementById('win').offsetWidth
+    const winH = document.getElementById('win').offsetHeight
+    const w = wrap.offsetWidth
+    ishot.style.height = ((w - B * 2) * (winH / winW) + B * 2).toFixed(1) + 'px'
+    void wrap.offsetWidth
+    const h = wrap.offsetHeight
+    const curLeft = 1920 - w + 30          // #ishotWrap 是 right:-30px
+    const curTop = 104
+    const scale = winW / (w - B * 2)
+    /* 原点在 center：位移 = 目标中心 − 当前中心 */
+    const dx = (60 + winW / 2) - (curLeft + w / 2)
+    const dy = (112 + winH / 2) - (curTop + h / 2)
+
+    const G = window.gsap
+    if (!G) {
+      /* 兜底：没加载到 gsap 就直接落终态，宁可硬切也别卡在封面上。
+         正常路径不该走到这里 —— vendor/gsap.min.js 是本地文件。 */
+      wrap.style.transform =
+        `perspective(1800px) translate(${dx}px,${dy}px) scale(${scale})`
+      ishot.style.borderWidth = '1px'
+      ishot.style.borderColor = 'rgba(245,241,234,.13)'
+      ihead.style.opacity = ipet.style.opacity = '0'
+      iwall.style.opacity = iscrim.style.opacity = '0'
+      frame.style.opacity = '1'
+      frame.style.borderColor = 'rgba(245,241,234,.13)'
+      topbar.style.opacity = foot.style.opacity = '1'
+      intro.style.visibility = 'hidden'
+      enter(true)
+      return
+    }
+
+    /* 保留透视：不设 transformPerspective 的话，rotateY 在飞行途中
+       没有近大远小，读作"图片被拉扁"而不是"图片转正"。 */
+    G.set(wrap, { transformPerspective: 1800 })
+    /* 画框先亮边框但**先不亮内容** —— 边框是"装裱的框"，
+       框先出现，图才落进去，顺序反了就像图本来就在那儿。 */
+    G.set(frame, { opacity: 0, borderColor: 'rgba(245,241,234,.9)' })
+
+    const tl = G.timeline({ defaults: { ease: 'power3.out' } })
+
+    /* 拍 1（0 ~ 0.30）：字、鱼、墙先退干净。
+       🔴 必须比截图起飞早 0.22s 收完。同时跑的话，截图飞到一半会
+       压在还没淡完的大字上 —— 两层字叠在一起，读作"画面花了"。 */
+    tl.to(ihead, { x: -16, y: -54, scale: .32, opacity: 0,
+        duration: .26, ease: 'power3.in' }, 0)
+    tl.to(ipet, { x: -700, rotate: -10, opacity: 0,
+        duration: .30, ease: 'power2.in' }, .02)
+    /* 墙淡到 0.52s 才没，正好和画框亮起（.60）接上。
+       提前淡完的话，截图飞行途中背景是纯黑的 —— 0.4 秒的"空洞"，
+       读作画面断了。留着虚化墙，飞行才有景深。 */
+    tl.to([iwall, iscrim], { opacity: 0, duration: .52, ease: 'power1.out' }, 0)
+
+    /* 拍 2（0.22 ~ 0.76）：截图起飞。先一下微放大读作"被拿起"，
+       再飞。两个 tween 串联，不是一条缓动曲线能表达的。 */
+    tl.to(wrap, { scale: 1.028, duration: .10, ease: 'power1.out' }, .10)
+    tl.to(wrap, {
+      x: dx, y: dy, scale, rotateY: 0, rotateX: 0,
+      duration: .42, ease: 'power3.inOut'
+    }, .20)
+    /* 🔴 画框（连同里面的 #shot）**必须等落地那一帧才亮**。
+       早亮的话，飞行途中画框里已经有一张同样的图 —— 观众看到
+       两张图在同一屏上叠着走，读作"重影"。落地瞬间画框 0.1s 淡入、
+       浮图 0.12s 淡出，两者位置逐像素重合，换手看不见。 */
+    tl.to(frame, { opacity: 1, duration: .10, ease: 'power1.out' }, .60)
+    /* 边框：画框亮着（.9）进来，落地后压回 .13；浮图的白边同步压暗，
+       12px 白边 → 1px 画框边，读作"框接管了边" */
+    tl.to(frame, { borderColor: 'rgba(245,241,234,.13)', duration: .30,
+        ease: 'power1.inOut' }, .68)
+
+    /* 拍 3（0.70 ~ 0.92）：白边交给画框边 —— 转场的"落款"。
+       🔴 不要 tween borderWidth（12→1）：box-sizing 是 border-box，
+       边框变细会让图片内容区胀大 22px，落地时读作"图突然弹大 2%"。
+       只改颜色，让 12px 白边和 1px 画框边**同时**压暗 ——
+       上/左/下三条边本来就重合，同步压暗就读作"框接管了边"。 */
+    tl.to(ishot, { borderColor: 'rgba(245,241,234,.13)',
+        boxShadow: '0 0 0 rgba(0,0,0,0)', duration: .26, ease: 'power1.inOut' }, .58)
+    tl.to(ishot, { opacity: 0, duration: .12, ease: 'none' }, .62)
+
+    /* 拍 4（0.74 ~ 1.10）：内容接力。说明牌推入 + 顶栏底栏淡入。
+       🔴 这一步不能省：图落定了画面却是静的，观众会以为片子卡了。 */
+    tl.add(() => { plate.classList.add('pushin') }, .64)
+    tl.to(topbar, { opacity: 1, duration: .18 }, .66)
+    tl.to(foot, { opacity: 1, duration: .18 }, .70)
+
+    /* 不等整条时间轴跑完：图在 0.72 就落定了，剩下的顶栏/底栏淡入
+       让它自己跑，这里立刻把内容交出来。多等 0.2s 观众读到的是"卡了"。 */
+    await sleep(700)
+    /* 先点亮正片内容，再淡掉封面层 —— 反过来的话要等 0.13s
+       才出卡片，观众读到的是"落地了但没东西"。
+       intro 此刻只剩一张正在淡出的浮图，压在内容上面看不出来。
+       true = 别再播截图入场：第一镜的图刚由转场送进画框。 */
+    enter(true)
+    /* 🔴 重起推镜。浮图落地时 #shot 已经从 1 推到 1.0056 了，浮图还是 1.0
+       —— 差 0.5%，交叉淡出会看到画面"缩一下"。两边都从 1.0 起，
+       换手才是逐像素的。 */
+    img.style.transition = 'none'
+    img.classList.remove('push')
+    void img.offsetWidth
+    img.style.transition = ''
+    img.classList.add('push')
+    /* 整层淡出而不是 visibility:hidden 硬切：
+       封面的虚化墙和正片的景深墙不是同一张，硬切会闪一帧。 */
+    intro.style.transition = 'opacity .12s linear'
+    intro.style.opacity = '0'
+    await sleep(130)
+    intro.style.visibility = 'hidden'
+  }
+
+  /* 同步标记：在画面左上角闪一个洋红方块，make.mjs 在录像里找它，
+   * 把之前那段"页面加载 + 图片解码"的等待切掉。
+   * 🔴 没有这一步，29 秒的片子会录成 51 秒，开头二十多秒是空白 ——
+   * 而且日志只说一句"没找到同步标记"，不报错，很容易漏过去。 */
+  await (async function markStart() {
+    await new Promise(r => setTimeout(r, 300))
+    const t0 = performance.now()
+    const d = document.createElement('div')
+    d.style.cssText = 'position:fixed;left:0;top:0;width:24px;height:24px;' +
+      'background:#FF00FF;z-index:9999;pointer-events:none'
+    document.body.appendChild(d)
+    await new Promise(r => setTimeout(r, 400))
+    d.remove()
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
+    window.__SYNC_LEAD__ = (performance.now() - t0) / 1000
+  })()
+
+  window.__READY_AT__ = performance.now()
+  window.__READY__ = true
+
+  const timers = []
+  starts.forEach((t, i) => {
+    if (i === 0) return
+    timers.push(setTimeout(() => { apply(i); enter() }, t * 1000))
+  })
+
+  /* intro 不 await —— 定时器要立刻挂上，否则整条时间轴整体后移 0.94s，
+     镜 5 会被 dur 截掉半句。 */
+  if (hasIntro) playIntro()
+  else enter()
+
+  const t0 = performance.now()
+  function tick() {
+    if ((performance.now() - t0) / 1000 >= dur) {
+      window.__DONE__ = true
+      timers.forEach(clearTimeout)
+      return
+    }
+    requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+}
+</script>
+</body>
+</html>

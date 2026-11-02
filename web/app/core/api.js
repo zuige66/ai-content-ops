@@ -44,6 +44,11 @@ export const api = {
   /* 本地成片库：video/out 里出过的所有片子 */
   videoList: () => get('/video/list'),
 
+  /* 策划台：出片前的那道闸。列表只读，审批改的是 md 的 front matter */
+  plans: () => get('/plans'),
+  plan: (slug) => get(`/plans/${encodeURIComponent(slug)}`),
+  planStatus: (slug, status) => post(`/plans/${encodeURIComponent(slug)}/status`, { status }),
+
   /* 同步动作（不排队）：写文案几秒、出封面十来秒 */
   script: (b) => post('/video/script', b),
   cover: (b) => post('/video/cover', b),
@@ -56,6 +61,10 @@ export const api = {
   steps: (id) => get(`/jobs/${id}/steps`),
   preview: (id) => get(`/video/preview/${id}`),
   confirm: (id, ok) => post(`/jobs/${id}/confirm`, { confirm: ok }),
+
+  /* 投稿：第一段只 dry-run（填表+截图），停在发布按钮前。
+   * 真发走 confirm(jobId, true) —— 同一个闸，别在别处另开一条路。 */
+  publish: (b) => post('/publish', b),
 
   /* 日志 */
   logs: (p) => get(`/logs/${p}`),

@@ -1,11 +1,11 @@
-/* tools/douyin-account.mjs —— 只读：把「头像/简介/背景/粉丝」这些字段捞全
- * 用法：node tools/douyin-account.mjs
+/* tools/probe/douyin-account.mjs —— 只读：把「头像/简介/背景/粉丝」这些字段捞全
+ * 用法：node tools/probe/douyin-account.mjs
  * 输出：state/account-self.json + state/account-creator.json，并打印字段清单
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { launchPersistent } from '../core/browser.mjs'
-import { ROOT } from '../core/log.mjs'
+import { launchPersistent } from '../../core/browser.mjs'
+import { ROOT } from '../../core/log.mjs'
 
 const { ctx } = await launchPersistent('douyin', { headless: true })
 const page = await ctx.newPage()

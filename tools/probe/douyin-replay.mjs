@@ -1,12 +1,12 @@
-/* tools/douyin-replay.mjs —— 两件事，全程只读
+/* tools/probe/douyin-replay.mjs —— 两件事，全程只读
  *  A. 复现：不带页面自己那串签名参数，直接调关键接口，看后端能不能主动取数
  *  B. 找入口：把创作者后台的 JS bundle 抓下来，正则搜「评论/修改」的写接口路径
- * 用法：node tools/douyin-replay.mjs
+ * 用法：node tools/probe/douyin-replay.mjs
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { launchPersistent } from '../core/browser.mjs'
-import { ROOT } from '../core/log.mjs'
+import { launchPersistent } from '../../core/browser.mjs'
+import { ROOT } from '../../core/log.mjs'
 
 const { ctx } = await launchPersistent('douyin', { headless: true })
 const page = await ctx.newPage()

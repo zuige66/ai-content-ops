@@ -78,6 +78,9 @@ export function gc({ apply = false, raw = false, publish = false } = {}) {
   /* ── 3. 原始录屏：合成完就没用了，但删了要重跑才能回来，所以单独开关 ── */
   if (raw) {
     for (const d of dirs) {
+      /* publish/ 是投稿截图，cover/ 是散图 —— 两个都没有 video.mp4，
+       * 下面那句 existsSync 本来就会跳过它们。这里只排除 publish，
+       * 是为了让 cover/ 万一将来带上 mp4 也能被清；两处判断保持一致。 */
       if (!d.isDirectory() || d.name === 'publish') continue
       const dir = path.join(OUT, d.name)
       if (!fs.existsSync(path.join(dir, 'video.mp4'))) continue   // 没成片的别动，那是别人正在跑

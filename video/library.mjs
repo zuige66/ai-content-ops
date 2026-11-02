@@ -44,6 +44,15 @@ function titleFromVoice(dir) {
   } catch { return '' }
 }
 
+/** 旁白全文 —— 投稿时当正文用，省得人再抄一遍。
+ *  只在要发布的那一条上取，不整库读（voice.marks.json 每条才几百字节）。 */
+function narrationFromVoice(dir) {
+  try {
+    const m = JSON.parse(fs.readFileSync(path.join(dir, 'voice.marks.json'), 'utf8'))
+    return String(m.text || '').trim().slice(0, 1000)
+  } catch { return '' }
+}
+
 export function listLibrary() {
   const byDir = new Map()
 
@@ -67,6 +76,7 @@ export function listLibrary() {
     byDir.set(name, {
       id: name,
       title: titleFromVoice(dir),
+      narration: narrationFromVoice(dir),
       kind: '',
       jobId: '',
       mp4: mediaUrl(mp4),

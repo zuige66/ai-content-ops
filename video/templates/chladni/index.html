@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>克拉尼图形 · 沉默的形状</title>
+<style>
+  :root{
+    --paper:#F3EEE4;
+    --ink:#1A1714;
+    --red:#C2412A;
+    --gray:#8A8378;
+    --hair:rgba(26,23,20,.18);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1920px;height:1080px;overflow:hidden;background:var(--paper)}
+  body{font-family:"Source Han Serif SC","Noto Serif SC","Songti SC",SimSun,serif;color:var(--ink)}
+  #stage{position:relative;width:1920px;height:1080px;overflow:hidden}
+  canvas{position:absolute;left:0;top:0;width:1920px;height:1080px}
+
+  /* 金属板：四角裁切标记，比整圈边框更像印刷品 */
+  .plate{position:absolute;left:700px;top:190px;width:720px;height:720px;
+    pointer-events:none;opacity:0}
+  .plate .c{position:absolute;width:22px;height:22px;border:0 solid rgba(26,23,20,.5)}
+  .plate .tl{left:0;top:0;border-left-width:1px;border-top-width:1px}
+  .plate .tr{right:0;top:0;border-right-width:1px;border-top-width:1px}
+  .plate .bl{left:0;bottom:0;border-left-width:1px;border-bottom-width:1px}
+  .plate .br{right:0;bottom:0;border-right-width:1px;border-bottom-width:1px}
+
+  /* 版面网格：编辑部那种极细的分栏线 */
+  .grid{position:absolute;inset:0;pointer-events:none;opacity:0}
+  .grid i{position:absolute;top:0;bottom:0;width:1px;background:var(--hair)}
+  .grid i.h{left:0;right:0;top:auto;bottom:auto;height:1px;width:auto}
+
+  .topbar{position:absolute;left:90px;right:90px;top:64px;display:flex;
+    justify-content:space-between;align-items:baseline;
+    font-size:19px;letter-spacing:.22em;color:var(--gray);opacity:0}
+  .topbar b{font-weight:400;color:var(--red);letter-spacing:.3em}
+
+  .titleblock{position:absolute;left:90px;top:300px;width:660px;opacity:0}
+  .kicker{font-size:20px;letter-spacing:.34em;color:var(--red);margin-bottom:26px}
+  h1{font-size:126px;line-height:1.02;letter-spacing:.02em;font-weight:400}
+  h1 em{font-style:normal;color:var(--red)}
+  .rule{width:100%;height:1px;background:var(--ink);margin:34px 0 26px;transform:scaleX(0);transform-origin:left}
+  .sub{font-size:29px;line-height:1.62;color:#3A342D;letter-spacing:.03em}
+  .sub b{font-weight:400;color:var(--red)}
+
+  /* 标注：细引线 + 小字，图鉴的做法 */
+  .annot{position:absolute;opacity:0}
+  .annot .line{position:absolute;background:var(--ink);height:1px;transform-origin:left}
+  .annot .dot{position:absolute;width:7px;height:7px;border-radius:50%;background:var(--red);
+    transform:translate(-50%,-50%)}
+  .annot .txt{position:absolute;font-size:21px;line-height:1.45;color:var(--ink);white-space:nowrap}
+  .annot .txt small{display:block;font-size:17px;color:var(--gray);letter-spacing:.05em;margin-top:4px}
+
+  .foot{position:absolute;left:90px;right:90px;bottom:64px;display:flex;
+    justify-content:space-between;align-items:flex-end;opacity:0}
+  .foot .eq{font-size:25px;color:#4A443C;letter-spacing:.02em;font-family:"Cambria Math",Georgia,serif}
+  .foot .eq b{color:var(--ink);font-weight:400}
+  .foot .src{font-size:17px;color:var(--gray);letter-spacing:.12em;text-align:right;line-height:1.7}
+
+  .flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+  .vignette{position:absolute;inset:0;pointer-events:none;
+    box-shadow:inset 0 0 260px rgba(26,23,20,.10)}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="cv"></canvas>
+
+  <div class="plate" id="plate">
+    <i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i>
+  </div>
+
+  <div class="grid" id="grid">
+    <i style="left:90px"></i><i style="left:1830px"></i>
+    <i style="left:600px"></i><i style="left:1320px"></i>
+    <i class="h" style="top:150px"></i><i class="h" style="bottom:150px"></i>
+  </div>
+
+  <div class="topbar" id="topbar">
+    <span><b>Nº 001</b> &nbsp;/&nbsp; 声学图鉴</span>
+    <span>CHLADNI FIGURES</span>
+  </div>
+
+  <div class="titleblock" id="titleblock">
+    <div class="kicker">THE SHAPE OF SILENCE</div>
+    <h1>沉默的<br><em>形状</em></h1>
+    <div class="rule" id="rule"></div>
+    <p class="sub">沙子不是被声音推过去的。<br>它只去一个地方——<b>不振动的地方</b>。</p>
+  </div>
+
+  <div class="annot" id="annot">
+    <div class="dot" id="ann-dot" style="left:0;top:0"></div>
+    <div class="line" id="ann-line" style="left:0;top:0;width:0"></div>
+    <div class="txt" id="ann-txt" style="left:0;top:0">波节线 · 振幅为零<small>NODAL LINE</small></div>
+  </div>
+
+  <div class="foot" id="foot">
+    <div class="eq">cos(<b>n</b>πx)·cos(<b>m</b>πy) − cos(<b>m</b>πx)·cos(<b>n</b>πy) <b>= 0</b></div>
+    <div class="src">ERNST CHLADNI · 1787<br>金属板驻波</div>
+  </div>
+
+  <div class="vignette"></div>
+  <div class="flash" id="flash"></div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════
+   克拉尼图形：金属板驻波 + 沙粒汇聚
+   ═══════════════════════════════════════════════════════════
+   场函数（板面位移，归一化到 [-1,1]）：
+       f(x,y) = cos(nπx)cos(mπy) − cos(mπx)cos(nπy)
+   沙粒聚集在 f = 0 的曲线上（节点线）。
+   粒子不是"被画上去"的，是每一帧朝 |f| 减小的方向滚 —— 
+   所以聚集过程本身就是物理解释，不用另外做动画。
+*/
+const W = 1920, H = 1080;
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+cv.width = W; cv.height = H;
+
+/* 金属板在画面里的位置（右侧偏中，给左边文字留位） */
+const PLATE = { x: 700, y: 190, w: 720, h: 720 };
+const PW = PLATE.w, PH = PLATE.h;
+
+/* 粒子渲染用离屏小画布：只算 720×720，比全屏快 8 倍 */
+const off = document.createElement('canvas');
+off.width = PW; off.height = PH;
+const octx = off.getContext('2d');
+const img = octx.createImageData(PW, PH);
+const ACC = new Uint16Array(PW * PH);   // 每像素落了几颗沙
+
+const N = 52000;
+const px = new Float32Array(N), py = new Float32Array(N);
+const vx = new Float32Array(N), vy = new Float32Array(N);
+/* 一部分沙永远不会被赶干净 —— 真实板子上节点线外面总是散着薄薄一层。
+ * 全收敛的版本线条干净得像矢量图，反而假。 */
+const FREE = new Uint8Array(N);
+/* 初始散乱分布（固定种子，保证每次录屏画面一致） */
+let seed = 20261101;
+function rnd() { seed = (seed * 1664525 + 1013904223) & 0x7fffffff; return seed / 0x7fffffff; }
+for (let i = 0; i < N; i++) {
+  px[i] = rnd(); py[i] = rnd();
+  vx[i] = 0; vy[i] = 0;
+  FREE[i] = rnd() < 0.14 ? 1 : 0;
+}
+
+/* 两个频率之间平滑过渡：t=0 用 (n1,m1)，t=1 用 (n2,m2) */
+let nA = 2, mA = 3, nB = 3, mB = 5, mix = 0;
+const PI = Math.PI;
+
+function field(x, y) {
+  const a = Math.cos(nA * PI * x) * Math.cos(mA * PI * y)
+          - Math.cos(mA * PI * x) * Math.cos(nA * PI * y);
+  if (mix <= 0) return a;
+  const b = Math.cos(nB * PI * x) * Math.cos(mB * PI * y)
+          - Math.cos(mB * PI * x) * Math.cos(nB * PI * y);
+  return a * (1 - mix) + b * mix;
+}
+
+/* 场值 + 解析梯度，一次算完。
+ * 🔴 别用数值差分：每颗沙要调 5 次 field，5.2 万颗就是每秒上百万次 cos，
+ *    实测掉到 20fps 以下，录出来是卡的。解析导数只算 8 次三角函数。 */
+let _f = 0, _gx = 0, _gy = 0;
+function fg(x, y) {
+  const a1 = nA * PI * x, a2 = mA * PI * y, a3 = mA * PI * x, a4 = nA * PI * y;
+  const c1 = Math.cos(a1), s1 = Math.sin(a1);
+  const c2 = Math.cos(a2), s2 = Math.sin(a2);
+  const c3 = Math.cos(a3), s3 = Math.sin(a3);
+  const c4 = Math.cos(a4), s4 = Math.sin(a4);
+  let f = c1 * c2 - c3 * c4;
+  let gx = -nA * PI * s1 * c2 + mA * PI * s3 * c4;
+  let gy = -mA * PI * c1 * s2 + nA * PI * c3 * s4;
+  if (mix > 0) {
+    const b1 = nB * PI * x, b2 = mB * PI * y, b3 = mB * PI * x, b4 = nB * PI * y;
+    const d1 = Math.cos(b1), t1 = Math.sin(b1);
+    const d2 = Math.cos(b2), t2 = Math.sin(b2);
+    const d3 = Math.cos(b3), t3 = Math.sin(b3);
+    const d4 = Math.cos(b4), t4 = Math.sin(b4);
+    const fb = d1 * d2 - d3 * d4;
+    const gxb = -nB * PI * t1 * d2 + mB * PI * t3 * d4;
+    const gyb = -mB * PI * d1 * t2 + nB * PI * d3 * t4;
+    const w = 1 - mix;
+    f = f * w + fb * mix;
+    gx = gx * w + gxb * mix;
+    gy = gy * w + gyb * mix;
+  }
+  _f = f; _gx = gx; _gy = gy;
+}
+
+const EPS = 0.0015;
+/* 🔴 这里踩了一个大坑，记下来：
+ *    第一版写成 `vx -= gx * |f| * k`，结果沙子全堆到画面边缘和正中间 —— 
+ *    因为那是朝**梯度下降**走，收敛到的是 f 的极小值（最负的地方），
+ *    而沙子该去的是 f = 0 的那条线。f 有正有负，必须按符号分别朝零线走：
+ *      f > 0 → 朝 −∇f；f < 0 → 朝 +∇f
+ *    另外步长要用**归一化方向 × 很小的系数**。第一版拿梯度原值乘，
+ *    单步位移 0.1（≈72 像素），粒子一步就飞出板子，被边界弹回来堆成一圈。
+ */
+function step(vib, jitter) {
+  const speed = 0.0034 * vib;
+  for (let i = 0; i < N; i++) {
+    const x = px[i], y = py[i];
+    fg(x, y);
+    const f = _f;
+    if (!FREE[i] && Math.abs(f) > EPS) {
+      const gl = Math.sqrt(_gx * _gx + _gy * _gy) || 1;
+      const sgn = f >= 0 ? 1 : -1;
+      vx[i] -= sgn * (_gx / gl) * speed;
+      vy[i] -= sgn * (_gy / gl) * speed;
+    }
+    /* 板子在振，粒子有横向乱跳 —— 这才是「沙子在跳」的观感，
+     * 也是节点线上的沙子有毛边、不是一根几何线的原因 */
+    vx[i] += (rnd() - 0.5) * jitter * vib;
+    vy[i] += (rnd() - 0.5) * jitter * vib;
+    vx[i] *= 0.88; vy[i] *= 0.88;
+    let nx = x + vx[i], ny = y + vy[i];
+    if (nx < 0) { nx = -nx; vx[i] *= -0.4 }
+    if (nx > 1) { nx = 2 - nx; vx[i] *= -0.4 }
+    if (ny < 0) { ny = -ny; vy[i] *= -0.4 }
+    if (ny > 1) { ny = 2 - ny; vy[i] *= -0.4 }
+    px[i] = nx; py[i] = ny;
+  }
+}
+
+function drawSand(alpha) {
+  ACC.fill(0);
+  for (let i = 0; i < N; i++) {
+    const ix = (px[i] * (PW - 1)) | 0;
+    const iy = (py[i] * (PH - 1)) | 0;
+    ACC[iy * PW + ix] += 1;
+  }
+  const d = img.data;
+  for (let p = 0, q = 0; p < ACC.length; p++, q += 4) {
+    const v = ACC[p];
+    /* 一颗沙几乎看不见，堆起来才成线 —— 所以用 sqrt 压一下，
+     * 让稀疏处也别完全消失，密度差才看得出来 */
+    const a = v === 0 ? 0 : Math.min(255, 62 + Math.sqrt(v) * 96);
+    d[q] = 26; d[q + 1] = 23; d[q + 2] = 20;
+    d[q + 3] = (a * alpha) | 0;
+  }
+  octx.putImageData(img, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(off, PLATE.x, PLATE.y, PW, PH);
+}
+
+/* ── 时间轴 ── */
+const T0 = performance.now();
+const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+const ease = v => { v = clamp01(v); return v * v * (3 - 2 * v) };
+const seg = (t, a, b) => clamp01((t - a) / (b - a));
+
+const el = id => document.getElementById(id);
+const flash = el('flash');
+const grid = el('grid'), topbar = el('topbar'), titleblock = el('titleblock');
+const plate = el('plate');
+const rule = el('rule'), annot = el('annot'), foot = el('foot');
+const annDot = el('ann-dot'), annLine = el('ann-line'), annTxt = el('ann-txt');
+
+const DUR = 13.0;
+
+function frame() {
+  const t = (performance.now() - T0) / 1000;
+
+  /* 振动强度：2.6 秒"发声"那一刻开启，之前沙子是死的 */
+  const vib = ease(seg(t, 2.6, 3.6));
+  const jitter = 0.0017;
+  if (vib > 0) step(vib, jitter);
+  else step(0, 0);
+
+  /* 9.4 秒开始换频率，图案 morph */
+  mix = ease(seg(t, 9.4, 12.2));
+
+  /* 沙子整体淡入 */
+  const sandAlpha = ease(seg(t, 0.5, 1.6));
+  drawSand(sandAlpha);
+
+  /* 闪白：发声的瞬间 */
+  const fl = seg(t, 2.55, 2.68) * (1 - seg(t, 2.68, 3.1));
+  flash.style.opacity = (fl * 0.55).toFixed(3);
+
+  /* 版面元素依次进场 */
+  grid.style.opacity = ease(seg(t, 0.2, 1.2)) * 0.9;
+  plate.style.opacity = ease(seg(t, 0.7, 1.7)) * 0.85;
+  topbar.style.opacity = ease(seg(t, 0.9, 1.8));
+  titleblock.style.opacity = ease(seg(t, 5.6, 6.8));
+  titleblock.style.transform = `translateY(${(1 - ease(seg(t, 5.6, 6.8))) * 26}px)`;
+  rule.style.transform = `scaleX(${ease(seg(t, 6.4, 7.4))})`;
+  foot.style.opacity = ease(seg(t, 7.2, 8.2));
+
+  /* 标注线：从文字指向图案上的一点 */
+  const at = ease(seg(t, 7.6, 8.8));
+  if (at > 0) {
+    annot.style.opacity = 1;
+    const tx = 1540, ty = 300;          /* 文字位置（别超 1830，不然被右边缘裁掉） */
+    const dx = 1180, dy = 430;          /* 指向图案上的点 */
+    annDot.style.left = dx + 'px';
+    annDot.style.top = dy + 'px';
+    annDot.style.opacity = at;
+    annLine.style.left = dx + 'px';
+    annLine.style.top = dy + 'px';
+    annLine.style.width = (tx - dx) * at + 'px';
+    annLine.style.transform = `rotate(${Math.atan2(ty + 14 - dy, tx - dx) * 180 / Math.PI}deg)`;
+    annTxt.style.left = tx + 'px';
+    annTxt.style.top = ty + 'px';
+    annTxt.style.opacity = ease(seg(t, 8.4, 9.2));
+  } else {
+    annot.style.opacity = 0;
+  }
+
+  if (t < DUR) requestAnimationFrame(frame);
+  else window.__DONE__ = true;
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

@@ -43,6 +43,16 @@ export function listJobs({ platform, limit = 50 } = {}) {
 
 export function getJob(id) { return jobs.find(j => j.id === id) }
 
+/** 这个平台上有没有正在等确认的同种任务。
+ *  为什么要问：dry-run 的浏览器页是活的，一个平台同时挂两条投稿，
+ *  两条会共用同一个 context 抢同一张上传页 —— 填出来的表是谁的都不一定。
+ *  所以宁可让第二条直接报错，让人先把第一条处理掉。 */
+export function findAwaitingConfirm({ platform, kind } = {}) {
+  return jobs.find(j => j.status === 'awaiting-confirm'
+    && (!platform || j.platform === platform)
+    && (!kind || j.kind === kind))
+}
+
 export function step(id, msg, extra = {}) {
   const j = getJob(id)
   if (!j) return
@@ -61,7 +71,6 @@ export function enqueue({ kind, platform, title, params }) {
     steps: [],
     result: null,
     error: null,
-    confirmToken: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   }
@@ -73,10 +82,14 @@ export function enqueue({ kind, platform, title, params }) {
 
 /** awaitConfirm：写操作 dry-run 走完，停在发布前，等人点头。
  *  确认后任务**重新入队**（params.confirmed=true），处理器自己走第二段 ——
- *  这比把挂起的 promise 续上简单可靠：重启也不怕，大不了重新 dry-run。 */
+ *  这比把挂起的 promise 续上简单可靠：重启也不怕，大不了重新 dry-run。
+ *
+ *  🔴 这里原来还生成一个 confirmToken 但**从来没被校验过** —— 看着像一道闸，
+ *     实际是死字段。真要做防重放得让前端也带上它，而现在的信任模型是
+ *     「只监听 127.0.0.1 + 人工点确认」，token 不增加任何实际安全性，所以删掉。
+ *     真正起作用的是 server.mjs 里 `body.confirm === true` 那道严格判定。 */
 export function awaitConfirm(j, summary) {
   j.status = 'awaiting-confirm'
-  j.confirmToken = `c${++seq}`
   j.result = summary        // 截图路径、填了什么 —— 人看的就是这个
   j.updatedAt = Date.now()
   save()
@@ -86,13 +99,17 @@ export function awaitConfirm(j, summary) {
 export function resolveConfirm(id, ok) {
   const j = getJob(id)
   if (!j || j.status !== 'awaiting-confirm') return null
-  j.confirmToken = null
   j.updatedAt = Date.now()
   if (!ok) {
     j.status = 'failed'
     j.error = '人工撤销'
     save()
     logEvent(j.platform, 'job.cancel', { ok: false, jobId: id })
+    /* 让处理器收拾现场 —— 投稿那边 dry-run 留着一张活着的上传页，
+     * 不关掉的话下一条任务会捡到它（ctx.pages().find 是全局的），
+     * 在别人填了一半的表单上接着填。 */
+    const h = pickCancelHandler(j)
+    if (h) Promise.resolve().then(() => h(j)).catch(() => { /* 收尾失败不影响撤销 */ })
     return j
   }
   j.params = { ...j.params, confirmed: true }
@@ -103,11 +120,73 @@ export function resolveConfirm(id, ok) {
   return j
 }
 
-/* 队列泵：一次只跑一个。awaiting-confirm 的任务占着坑等确认 ——
-   写操作本来就该全神贯注，队列里排后面的自然等着。 */
-const queue = []
+/* ══════════════════════════════════════════════════════════════════════
+ * 事后对账
+ * ══════════════════════════════════════════════════════════════════════ */
+
+/** 把「脚本判失败、其实人手动发成功了」的投稿任务翻成 done。
+ *
+ *  典型场景：抖音点发布后要短信验证码，脚本等 5 分钟超时判 failed，
+ *  人在窗口里输完码照样发出去了 —— 任务中心和线上真实结果对不上。
+ *  对账不靠猜：拿作品列表的 createTime 和任务的 createdAt 比，
+ *  再把正文前 12 个字对一遍，两边都中才算数。 */
+export function reconcilePublish(works = []) {
+  const fixed = []
+  for (const j of jobs) {
+    if (j.kind !== 'publish' || j.status !== 'failed') continue
+    /* 只对账「可能是人工接手」的那几种失败，别的（没登录、文件不存在）别乱翻 */
+    if (!/验证码|没看到成功提示|5 分钟/.test(String(j.error || ''))) continue
+    const want = String((j.params && (j.params.desc || j.params.title)) || '').slice(0, 12)
+    if (!want) continue
+
+    const hit = works.find((w) => {
+      const t = Number(w.createTime) * 1000
+      if (!t) return false
+      /* 发布时间必须落在任务创建之后的一段窗口里 */
+      if (t < j.createdAt - 120000 || t > j.createdAt + 40 * 60000) return false
+      return String(w.title || w.desc || '').includes(want)
+    })
+    if (!hit) continue
+
+    j.status = 'done'
+    j.error = null
+    j.result = { ...(j.result || {}), published: true, reconciled: true, itemId: hit.plainId || hit.id || '' }
+    j.updatedAt = Date.now()
+    logEvent(j.platform, 'job.reconciled', { ok: true, jobId: j.id, itemId: j.result.itemId })
+    fixed.push({ id: j.id, itemId: j.result.itemId, title: j.title })
+  }
+  if (fixed.length) save()
+  return fixed
+}
+
+/* 队列泵：一次只跑一个。awaiting-confirm **不占坑** —— 人可能隔半小时才点确认，
+ * 让后面排的视频任务干等半小时不合理。写操作的互斥交给平台锁
+ * （见 findAwaitingConfirm + 各 publish 入口的检查），不靠队列硬堵。 */
 export function register(kind, fn) { handlers[kind] = fn }
 const handlers = {}
+
+/** 撤销/收尾钩子：处理器自己关浏览器页、清临时 Map。
+ *
+ *  🔴 必须按 **`kind:platform`** 存，不能只按 kind。
+ *     抖音和 B 站的 publish 都在模块顶层注册 `onCancel('publish', ...)`，
+ *     单槽会让后 import 的那个（server.mjs 里是 bili，L54 晚于 L48）
+ *     静默覆盖前者 —— 撤销抖音投稿时它的 closeKept 永远不执行，
+ *     那张填了一半的上传页就留在浏览器里给下一条任务捡，正是
+ *     一串「人工撤销」的结构性根因。
+ *     兼容：注册时不带 platform 的老写法仍然能命中（存成 `kind:*`）。 */
+export function onCancel(kind, platformOrFn, maybeFn) {
+  const hasPlatform = typeof platformOrFn === 'string'
+  const platform = hasPlatform ? platformOrFn : '*'
+  const fn = hasPlatform ? maybeFn : platformOrFn
+  if (typeof fn !== 'function') return
+  cancelHandlers[`${kind}:${platform}`] = fn
+}
+const cancelHandlers = {}
+
+/** 取收尾钩子：先找精确匹配，再退回 kind:* */
+function pickCancelHandler(job) {
+  return cancelHandlers[`${job.kind}:${job.platform || 'core'}`] || cancelHandlers[`${job.kind}:*`]
+}
 
 function pump() {
   if (running) return

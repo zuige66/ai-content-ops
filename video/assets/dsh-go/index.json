@@ -1,0 +1,83 @@
+{
+  "repo": "ccch1mneyyy/dsh-Go",
+  "fetchedAt": "2026-11-01T16:27:57.893Z",
+  "images": [
+    {
+      "file": "01-hero-zh-light.webp",
+      "w": 2560,
+      "h": 1280,
+      "alt": "DSH Go：把 DeepSeek Harness 装进口袋",
+      "src": "https://github.com/ccch1mneyyy/dsh-Go/raw/main/docs/assets/hero-zh-light.webp"
+    },
+    {
+      "file": "02-f-remote-zh-light.webp",
+      "w": 2400,
+      "h": 1500,
+      "alt": "本机对话、切换主机、电脑上的对话",
+      "src": "https://github.com/ccch1mneyyy/dsh-Go/raw/main/docs/assets/f-remote-zh-light.webp"
+    },
+    {
+      "file": "03-f-steer-zh-light.webp",
+      "w": 2400,
+      "h": 1500,
+      "alt": "生成中排队一条消息；完成后过程折叠",
+      "src": "https://github.com/ccch1mneyyy/dsh-Go/raw/main/docs/assets/f-steer-zh-light.webp"
+    },
+    {
+      "file": "04-f-web-zh-light.webp",
+      "w": 2400,
+      "h": 1500,
+      "alt": "同一段对话的原生界面与网页版",
+      "src": "https://github.com/ccch1mneyyy/dsh-Go/raw/main/docs/assets/f-web-zh-light.webp"
+    },
+    {
+      "file": "05-f-share-zh-light.webp",
+      "w": 2400,
+      "h": 1500,
+      "alt": "分享卡、对话回放、我的分享链接",
+      "src": "https://github.com/ccch1mneyyy/dsh-Go/raw/main/docs/assets/f-share-zh-light.webp"
+    },
+    {
+      "file": "06-f-adaptive-zh-light.webp",
+      "w": 2400,
+      "h": 1500,
+      "alt": "平板与横屏手机",
+      "src": "https://github.com/ccch1mneyyy/dsh-Go/raw/main/docs/assets/f-adaptive-zh-light.webp"
+    },
+    {
+      "file": "07-f-theme-zh-light.webp",
+      "w": 2400,
+      "h": 1500,
+      "alt": "主题设置与两种主题色",
+      "src": "https://github.com/ccch1mneyyy/dsh-Go/raw/main/docs/assets/f-theme-zh-light.webp"
+    },
+    {
+      "file": "08-f-lang-light.webp",
+      "w": 2400,
+      "h": 1500,
+      "alt": "同一段对话的中文与英文界面",
+      "src": "https://github.com/ccch1mneyyy/dsh-Go/raw/main/docs/assets/f-lang-light.webp"
+    },
+    {
+      "file": "09-f-phone-zh-light.webp",
+      "w": 2400,
+      "h": 1500,
+      "alt": "手机操控与确认方式",
+      "src": "https://github.com/ccch1mneyyy/dsh-Go/raw/main/docs/assets/f-phone-zh-light.webp"
+    },
+    {
+      "file": "10-qr-qq-zh-light.webp",
+      "w": 640,
+      "h": 840,
+      "alt": "QQ 群 DSH-Go！！，群号 1132118290",
+      "src": "https://github.com/ccch1mneyyy/dsh-Go/raw/main/docs/assets/qr-qq-zh-light.webp"
+    },
+    {
+      "file": "11-qr-wechat-zh-light.webp",
+      "w": 640,
+      "h": 840,
+      "alt": "微信群 DSHGo 2群",
+      "src": "https://github.com/ccch1mneyyy/dsh-Go/raw/main/docs/assets/qr-wechat-zh-light.webp"
+    }
+  ]
+}

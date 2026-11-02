@@ -13,7 +13,7 @@
 
 const { reactive, ref, computed } = Vue
 import { api } from '../core/api.js'
-import { refresh, toast } from '../store.js'
+import { refresh, toast, store } from '../store.js'
 import { nudge } from '../core/motion.js'
 import { charsToSec } from '../core/ui.js'
 
@@ -241,11 +241,199 @@ function watch(jobId) {
         if (pv.cover) live.cover = pv.cover
         refresh()
         loadLib()          // 新出的片子立刻出现在成片库里
+        /* 刚出的这条直接挂到投稿区，标题也顺手带过去 —— 别再手抄一遍 */
+        if (r.job.status === 'done' && r.job.id) {
+          pub.target = r.job.id
+          if (!pub.title) pub.title = draft.title || ''
+          if (!pub.desc) pub.desc = (r.job.result && r.job.result.script && r.job.result.script.narration) || draft.narration || ''
+        }
       }
     } catch {
       /* 抖一下继续盯 */
     }
   }, 1500)
+}
+
+/* ═══════════════════════════════════════════════════════════════
+ * 投稿（两段式）
+ *
+ * 这是「出片」和「发出去」之间原本缺失的那一环：以前界面上根本没有
+ * 发布入口，只能靠终端 curl 建 job 再去任务中心点头，标题标签全靠手抄。
+ *
+ * 闸门在服务端，这里只负责把产物递过去：
+ *   ① POST /publish  → dry-run：填表 + 截图，停在「发布」按钮前
+ *   ② 人看截图，点「确认发布」→ POST /jobs/:id/confirm {confirm:true}
+ * 第二段永远是人的动作，界面上不给「一键发」。
+ * ═══════════════════════════════════════════════════════════════ */
+const pub = reactive({
+  platform: 'douyin',
+  target: '',          // 成片目录名（/video/list 里的 id）
+  title: '',
+  desc: '',
+  tags: '',
+  location: '',
+  scheduleAt: '',
+  jobId: null,
+  status: null,
+  shots: [],
+  warnings: [],
+  note: '',
+  error: '',
+  busy: false,
+  timer: null,
+})
+
+/** 从成片库挑一条，把标题/正文自动带过来 —— 别再手抄 */
+function pickForPublish(x) {
+  if (!x || x.missing) return
+  pub.jobId = null
+  pub.status = null
+  pub.shots = []
+  pub.warnings = []
+  pub.note = ''
+  pub.error = ''
+  pub.title = x.title || ''
+  pub.target = x.id
+  /* 正文直接用旁白全文（library 从 voice.marks.json 里读出来的），
+   * 标签留空让人自己填 —— 标签是最需要人判断的一项，别替人猜 */
+  pub.desc = x.narration || ''
+  toast(`已选中 ${x.id}，正文已带入旁白，填好标签再点「投稿（预演）」`, 'info')
+}
+
+/** 第一段：dry-run */
+async function startPublish() {
+  if (!pub.target) {
+    toast('先在下面「本地成片」里选一条，或者用刚出的这条', 'bad')
+    return
+  }
+  pub.busy = true
+  pub.error = ''
+  pub.shots = []
+  pub.warnings = []
+  try {
+    const r = await api.publish({
+      platform: pub.platform,
+      id: pub.target,
+      title: pub.title,
+      desc: pub.desc,
+      tags: String(pub.tags).split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean),
+      location: pub.location || undefined,
+      scheduleAt: pub.scheduleAt || undefined,
+    })
+    pub.jobId = r.jobId
+    watchPublish(r.jobId)
+    toast('已开始预演：上传 + 填表 + 截图，停在发布按钮前', 'ok')
+  } catch (e) {
+    pub.error = String(e.message || e)
+    toast(pub.error, 'bad')
+  } finally {
+    pub.busy = false
+  }
+}
+
+/** 盯投稿任务，等到 awaiting-confirm 就把截图摆出来 */
+function watchPublish(jobId) {
+  clearInterval(pub.timer)
+  pub.status = 'running'
+  pub.timer = setInterval(async () => {
+    try {
+      const r = await api.steps(jobId)
+      const j = r.job
+      pub.status = j.status
+      const res = j.result || {}
+      pub.shots = res.screenshots || []
+      pub.note = res.note || ''
+      pub.warnings = res.warnings || []
+      if (j.error) pub.error = j.error
+      if (['awaiting-confirm', 'done', 'failed'].includes(j.status)) {
+        clearInterval(pub.timer)
+        pub.timer = null
+        refresh()
+      }
+    } catch {
+      /* 抖一下继续 */
+    }
+  }, 1500)
+}
+
+/** 第二段：人点确认，才真发 */
+async function confirmPublish(ok) {
+  if (!pub.jobId) return
+  pub.busy = true
+  try {
+    await api.confirm(pub.jobId, ok)
+    if (ok) {
+      toast('已确认，正在发布', 'ok')
+      watchPublish(pub.jobId)
+    } else {
+      toast('已撤销', 'info')
+      clearInterval(pub.timer)
+      pub.timer = null
+      pub.status = 'failed'
+    }
+    refresh()
+  } catch (e) {
+    toast(String(e.message || e), 'bad')
+  } finally {
+    pub.busy = false
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+ * 从策划 md 装载（策划台点「去出片」会设 store.pendingPlan）
+ *
+ * 🔴 这是「单一事实源」那条规矩的落地：AGENTS.md 说策划 md 是唯一事实源、
+ *    JSON 只是派生。以前工坊只吃一个 topic 让 LLM 重写，同一期就有了两份
+ *    互不相干的口播 —— 现在改成**读 md**：钩子当主题、口播表逐段搬进段落框、
+ *    封面两行、时长都直接落表。一个字都不改写。
+ *
+ * 只读，不回写 md。要不要动文案是人的事。
+ * ═══════════════════════════════════════════════════════════════ */
+const planBind = reactive({ slug: null, title: '', status: '', loading: false })
+
+function fillFromPlan(plan) {
+  if (!plan) return
+  planBind.slug = plan.slug
+  planBind.title = plan.title || plan.slug
+  planBind.status = plan.status || ''
+
+  /* 主题：优先用选中的钩子，没有就用标题 */
+  if (plan.hook) draft.topic = plan.hook
+  else if (plan.title) draft.topic = plan.title
+
+  /* 口播表逐段搬进「段落」框 —— 一行一段，原样搬运不改写 */
+  const voice = Array.isArray(plan.voice) ? plan.voice : []
+  if (voice.length) {
+    draft.segmentText = voice.map((v) => v.text).filter(Boolean).join('\n')
+    draft.narration = voice.map((v) => v.text).filter(Boolean).join('。') + '。'
+  }
+
+  /* 封面两行：第一行进「封面大字」；第二行没地方放就先记着（模板只收一行） */
+  if (plan.cover && plan.cover.line1) draft.coverText = String(plan.cover.line1).slice(0, 10)
+
+  /* 标题：策划里如果给了抖音标题候选，取第一条 */
+  if (plan.title) draft.title = plan.title
+
+  if (plan.durSec) draft.durSec = Number(plan.durSec) || draft.durSec
+  if (plan.episode) draft.day = Number(plan.episode) || draft.day
+
+  toast(`已按策划「${planBind.title}」填好：${voice.length} 段口播，原样搬运`, 'ok')
+}
+
+/** 挂载时如果有待装载的策划，读进来 */
+async function consumePendingPlan() {
+  const slug = store.pendingPlan
+  if (!slug) return
+  store.pendingPlan = null          // 先清，失败也不重试，免得反复弹错
+  planBind.loading = true
+  try {
+    const r = await api.plan(slug)
+    fillFromPlan(r.plan)
+  } catch (e) {
+    toast(`读策划失败：${String(e.message || e).slice(0, 80)}`, 'bad')
+  } finally {
+    planBind.loading = false
+  }
 }
 
 /* ── 组件 ───────────────────────────────────────────────────── */
@@ -254,6 +442,7 @@ export const VideoView = {
   setup() {
     if (!types.value.length) loadTypes()
     if (!lib.loaded) loadLib()
+    consumePendingPlan()
 
     const currentType = computed(() => types.value.find((t) => t.id === draft.template) || null)
     const chars = computed(() => (draft.narration.length || draft.segmentText.length))
@@ -299,11 +488,25 @@ export const VideoView = {
       return { text: '进行中', cls: 'pill--accent' }
     })
 
+    /* 投稿状态的药丸：awaiting-confirm 是唯一需要人动手的状态 */
+    const pubPill = computed(() => {
+      const s = pub.status
+      if (!s) return null
+      if (s === 'awaiting-confirm') return { text: '等你确认', cls: 'pill--warn' }
+      if (s === 'done') return { text: '已发布', cls: 'pill--ok' }
+      if (s === 'failed') return { text: '失败/已撤销', cls: 'pill--bad' }
+      return { text: '进行中', cls: 'pill--accent' }
+    })
+
     return {
       draft, busy, live, types, currentType, chars, estSec, headLine,
       steps, pipe, stageAt, statusPill, isDone, isFail,
       genScript, makeVideo, makeCover, runPipeline,
       lib, loadLib, ago,
+      /* 投稿 */
+      pub, pubPill, pickForPublish, startPublish, confirmPublish,
+      /* 策划装载 */
+      planBind,
       refresh,
     }
   },
@@ -324,6 +527,12 @@ export const VideoView = {
       <div class="card__head">
         <h2 class="card__title">选题</h2>
         <span class="card__meta">{{ types.length }} 种版式</span>
+      </div>
+
+      <!-- 从策划装载时把出处摆出来：这是 md 里的内容，不是 AI 新写的 -->
+      <div v-if="planBind.slug" class="alert alert--warn" style="margin-bottom:16px">
+        内容来自策划「{{ planBind.title }}」（{{ planBind.slug }} · {{ planBind.status }}）——
+        口播原文照搬，没让 AI 重写。要改就在这里改。
       </div>
 
       <div class="seg">
@@ -464,7 +673,86 @@ export const VideoView = {
       </div>
     </section>
 
-    <!-- ④ 本地成片：出过的片子都在，关页面/重启服务也不丢 -->
+    <!-- ④ 投稿：两段式。第一段预演，第二段永远是人点 -->
+    <section v-if="pub.target" class="card mt4">
+      <div class="card__head">
+        <h2 class="card__title">投稿</h2>
+        <span v-if="pubPill" class="pill" :class="pubPill.cls">{{ pubPill.text }}</span>
+        <span class="card__meta mono">{{ pub.target }}</span>
+      </div>
+
+      <div class="seg">
+        <button class="seg__item" :class="{ on: pub.platform === 'douyin' }"
+          @click="pub.platform = 'douyin'">抖音</button>
+        <button class="seg__item" :class="{ on: pub.platform === 'bili' }"
+          @click="pub.platform = 'bili'">B站</button>
+      </div>
+
+      <div class="grid grid--2 mt3" style="gap:12px">
+        <div class="stack" style="gap:12px">
+          <div class="field">
+            <label class="field__label">标题</label>
+            <input class="input" v-model="pub.title" placeholder="发布时挂在视频上的标题">
+          </div>
+          <div class="field">
+            <label class="field__label">正文</label>
+            <textarea class="textarea" v-model="pub.desc" rows="5"
+              placeholder="简介。抖音会把话题写进正文"></textarea>
+          </div>
+        </div>
+        <div class="stack" style="gap:12px">
+          <div class="field">
+            <label class="field__label">标签（逗号或空格分隔）</label>
+            <input class="input" v-model="pub.tags" placeholder="AI, 编程, 开源">
+          </div>
+          <div class="field">
+            <label class="field__label">地点（只有抖音支持，尽力而为）</label>
+            <input class="input" v-model="pub.location" placeholder="广东工业大学（大学城校区）">
+          </div>
+          <div class="field">
+            <label class="field__label">定时发布（可选，YYYY-MM-DD HH:mm）</label>
+            <input class="input" v-model="pub.scheduleAt" placeholder="留空 = 立即发布">
+            <p class="field__help">给了就让抖音到点自己发 —— 一次上传管一天，少挨验证码</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card__foot">
+        <Btn variant="primary" icon="upload" :loading="pub.busy" @click="startPublish">
+          {{ pub.jobId ? '重新预演' : '投稿（预演）' }}
+        </Btn>
+        <span class="spacer"></span>
+        <span style="font-size:12px;color:var(--muted)">
+          预演只填表 + 截图，一个字节都不发
+        </span>
+      </div>
+
+      <!-- 预演结果：截图 + 警告 + 确认闸 -->
+      <div v-if="pub.error" class="alert alert--bad mt3">{{ pub.error }}</div>
+
+      <div v-if="pub.warnings.length" class="alert alert--warn mt3">
+        <div v-for="(w, i) in pub.warnings" :key="i">⚠ {{ w }}</div>
+      </div>
+
+      <div v-if="pub.status === 'awaiting-confirm'" class="mt3">
+        <p class="field__help" style="margin-bottom:8px">
+          上传和填表都完成了。看完截图再决定 —— 这一步之后就是真发。
+        </p>
+        <div class="kf">
+          <img v-for="s in pub.shots" :key="s" :src="s" alt="投稿截图">
+        </div>
+        <div class="row mt3" style="gap:12px">
+          <Btn variant="primary" icon="check" :loading="pub.busy" @click="confirmPublish(true)">
+            确认发布
+          </Btn>
+          <Btn variant="quiet" :loading="pub.busy" @click="confirmPublish(false)">撤销</Btn>
+        </div>
+      </div>
+
+      <p v-else-if="pub.note" class="field__help mt3">{{ pub.note }}</p>
+    </section>
+
+    <!-- ⑤ 本地成片：出过的片子都在，关页面/重启服务也不丢 -->
     <section class="card mt4">
       <div class="card__head">
         <h2 class="card__title">本地成片</h2>
@@ -493,6 +781,8 @@ export const VideoView = {
           <div class="lib__act">
             <a v-if="!x.missing" class="link" :href="x.mp4" target="_blank" rel="noopener">▶ 播放</a>
             <span v-else class="pill pill--bad">文件已删</span>
+            <Btn v-if="!x.missing" size="sm" variant="quiet" icon="upload"
+              @click="pickForPublish(x)">投稿</Btn>
           </div>
         </div>
       </div>

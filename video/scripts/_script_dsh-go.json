@@ -1,0 +1,118 @@
+{
+  "episode": 1,
+  "series": "GITHUB 项目推荐",
+  "repo": "github.com/ccch1mneyyy/dsh-Go",
+  "title": "安卓手机能跑 Ubuntu，八天五千三百星",
+  "coverText": "dsh-Go|八天五千星",
+  "desc": "安卓手机能跑 Ubuntu 了，八天五千三百星。dsh-Go 把 DeepSeek 的编程 agent 装进安卓，自带 Ubuntu 和 Node，不用 root 不用 Termux，还能 SSH 连回电脑接着写。缺点：只有安卓，iPhone 再等等。转给那个天天背电脑通勤的同事。",
+  "tags": [
+    "GitHub",
+    "开源",
+    "AI编程",
+    "DeepSeek",
+    "安卓"
+  ],
+  "_note": "由 video/plans/github-picks-01-dsh-go.md 派生。改口播改策划，别直接改这里——两边不一致时以策划为准。数字（5.3k / 8 天 / AGPL-3.0 / Android 8+）取自 GitHub API 实查，2026-11-02。",
+  "shots": [
+    {
+      "img": "video/assets/dsh-go/02-f-remote-zh-light.webp",
+      "pos": "50% 34%",
+      "kicker": "STAR",
+      "big": "5.3k",
+      "small": "八天",
+      "key": "",
+      "text": "安卓手机能跑 Ubuntu，**八天五千三百星**。"
+    },
+    {
+      "win": {
+        "kind": "strike",
+        "title": "想在手机上*写代码*",
+        "items": [
+          {
+            "t": "装 Termux",
+            "d": "安卓上的 Linux 环境",
+            "strike": true
+          },
+          {
+            "t": "折腾 root",
+            "d": "刷机拿最高权限",
+            "strike": true
+          }
+        ],
+        "card": {
+          "k": "代价",
+          "v": "折腾半天",
+          "s": "装完还得解锁，跑起来仍是个半成品环境"
+        },
+        "bg": "video/assets/dsh-go/code-bg.png"
+      },
+      "key": "",
+      "text": "以前想在手机上调代码，得装 Termux，还得 **root**。"
+    },
+    {
+      "core": {
+        "img": "video/assets/dsh-go/duo-local.png",
+        "cap": "手机里装了什么",
+        "layers": [
+          {
+            "k": "应用",
+            "v": "DSH Go 客户端"
+          },
+          {
+            "k": "环境",
+            "v": "内置 Ubuntu + Node"
+          },
+          {
+            "k": "内核",
+            "v": "借用 Android 自己的"
+          }
+        ],
+        "noroot": "免 root、免 Termux"
+      },
+      "key": "",
+      "text": "它把 Ubuntu 和 Node 直接塞进手机，**不用 root**，装上就能跑。"
+    },
+    {
+      "duo": {
+        "a": "video/assets/dsh-go/duo-local.png",
+        "b": "video/assets/dsh-go/duo-remote.png",
+        "tagA": "本机",
+        "tagB": "电脑",
+        "cap": "SSH 接管同一段对话",
+        "note": "手机发起，电脑接管 —— 对话还是同一段，不是重新开一份。",
+        "sub": "192.168.1.20"
+      },
+      "img": "video/assets/dsh-go/03-f-steer-zh-light.webp",
+      "pos": "50% 40%",
+      "key": "SSH 接管同一段对话",
+      "text": "也能 SSH 连回电脑，**接着同一段对话写**。"
+    },
+    {
+      "fin": {
+        "lines": [
+          "github.com/",
+          "ccch1mneyyy/dsh-Go"
+        ],
+        "thumbs": [
+          "video/assets/dsh-go/duo-local.png",
+          "video/assets/dsh-go/duo-remote.png",
+          "video/assets/dsh-go/repo.png"
+        ],
+        "meta": [
+          {
+            "t": "AGPL-3.0"
+          },
+          {
+            "t": "Android 8+"
+          },
+          {
+            "t": "只有安卓",
+            "hot": true
+          }
+        ]
+      },
+      "key": "",
+      "text": "GitHub 搜 dsh-Go，**AGPL 开源**。缺点：**只有安卓**。"
+    }
+  ]
+}

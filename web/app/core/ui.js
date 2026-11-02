@@ -28,6 +28,8 @@ const ICONS = {
   plus: ['M12 5.5v13', 'M5.5 12h13'],
   minus: ['M5.5 12h13'],
   menu: ['M4 7h16', 'M4 12h16', 'M4 17h16'],
+  /* 投稿用：向上箭头 + 托盘，跟 down 是一对 */
+  upload: ['M12 19.4V6.4', 'M6.4 12l5.6-5.6 5.6 5.6', 'M5 20.4h14'],
 }
 
 export const Icon = {

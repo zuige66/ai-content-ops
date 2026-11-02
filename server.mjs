@@ -33,13 +33,14 @@ import { fileURLToPath } from 'node:url'
 
 import { logEvent } from './core/log.mjs'
 import { readConfig, run } from './core/shell.mjs'
-import { enqueue, register, listJobs, getJob, resolveConfirm } from './core/jobs.mjs'
+import { enqueue, register, listJobs, getJob, resolveConfirm, reconcilePublish } from './core/jobs.mjs'
 import { makeVideo } from './video/make.mjs'
 import { makeCover } from './video/cover.mjs'
 import { generateScript } from './video/script.mjs'
 import { runPipeline } from './video/pipeline.mjs'
 import { listTypes, getType } from './video/types.mjs'
 import { listLibrary } from './video/library.mjs'
+import { listPlans, readPlan, setPlanStatus, planStock, checkPlanGate } from './video/plans.mjs'
 import { gc as videoGc } from './video/gc.mjs'
 import { MANIFEST } from './core/agent-api.mjs'
 import * as douyinSession from './douyin/session.mjs'
@@ -228,7 +229,7 @@ const MIME = {
 
 /** 允许直接发的后缀。
  *  🔴 故意**不含 .json / .txt / .py / .mjs / .bat / .md** ——
- *     这个目录里有 config.json（指向 llm.json 的 key）、_script.json、
+ *     这个目录里有 config.json（指向 llm.json 的 key）、
  *     server.mjs 自己。白名单挡掉比黑名单可靠。 */
 const ALLOW_EXT = new Set([
   '.html', '.js', '.css', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.ico',
@@ -257,18 +258,28 @@ const json = (res, code, obj) => {
 }
 
 /** 读请求体，直接给对象 —— 每个路由都写一遍 JSON.parse(...toString()) 纯噪音。
- *  解析失败给 {}，让路由自己用「缺字段」的错误话术回人话。 */
+ *  解析失败给 {}，让路由自己用「缺字段」的错误话术回人话。
+ *
+ *  🔴 超限时不能只 req.destroy() —— 那样 'end' 永远不会触发，Promise 一直挂着，
+ *     请求既没有响应也没有断开，客户端干等到自己的超时。所以先 resolve({})
+ *     把话术交给路由（它会回 400 人话），再断开。 */
 const readBody = (req) =>
   new Promise((resolve) => {
     let raw = ''
+    let done = false
+    const finish = (v) => { if (!done) { done = true; resolve(v) } }
     req.on('data', (c) => {
       raw += c
-      if (raw.length > 2e6) req.destroy()
+      if (raw.length > 2e6) {
+        finish({})
+        req.destroy()
+      }
     })
     req.on('end', () => {
-      try { resolve(raw ? JSON.parse(raw) : {}) } catch { resolve({}) }
+      try { finish(raw ? JSON.parse(raw) : {}) } catch { finish({}) }
     })
-    req.on('error', () => resolve({}))
+    req.on('error', () => finish({}))
+    req.on('aborted', () => finish({}))
   })
 
 /** 发一个文件。命中返回 true，其余（越界 / 后缀不在白名单 / 不存在）返回 false，
@@ -406,6 +417,72 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && (p === '/ctl/doctor' || p === '/doctor')) {
       return json(res, 200, await doctorInfo())
     }
+    /* 页面结构探测：改版后想知道某个控件还在不在、选择器还准不准，打这个。
+     * 例：/browser/probe?url=...upload&find=定时发布
+     * 只读，不上传不发任何东西。 */
+    if (req.method === 'GET' && p === '/browser/probe') {
+      try {
+        const { attachLive } = await import('./core/browser.mjs')
+        const target = u.searchParams.get('url') || 'https://creator.douyin.com/creator-micro/content/upload'
+        const find = u.searchParams.get('find') || '定时发布'
+        const { ctx } = await attachLive('douyin')
+        const page = ctx.pages()[0] || await ctx.newPage()
+        if (page.url() !== target) {
+          await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 60000 })
+          await page.waitForTimeout(5000)
+        }
+        const hits = await page.evaluate((needle) => {
+          const out = []
+          for (const el of document.querySelectorAll('*')) {
+            if ((el.textContent || '').trim() !== needle || el.children.length) continue
+            out.push({
+              tag: el.tagName,
+              cls: String(el.className || '').slice(0, 70),
+              parentCls: String(el.parentElement && el.parentElement.className || '').slice(0, 70),
+              grandCls: String(el.parentElement && el.parentElement.parentElement && el.parentElement.parentElement.className || '').slice(0, 70),
+            })
+            if (out.length >= 3) break
+          }
+          return out
+        }, find)
+        const radios = await page.locator(`[class^='radio']:has-text('${find}')`).count()
+        const byText = await page.getByText(find, { exact: true }).count()
+        const timeInput = await page.locator('.semi-input[placeholder="日期和时间"]').count()
+        return json(res, 200, {
+          ok: true, url: page.url(), find,
+          textHits: hits, radioSelector: radios, exactText: byText, timeInput,
+          note: 'radioSelector / timeInput 都 ≥1 才说明定时发布的选择器还准',
+        })
+      } catch (e) {
+        return json(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 300) })
+      }
+    }
+    /* 真人浏览器（CDP）体检：投稿前想知道「会不会弹验证码」，先打这个。
+     * 关键看 webdriver —— false 才是真人环境，true 说明还在用 Playwright 自带实例。 */
+    if (req.method === 'GET' && p === '/browser/live') {
+      try {
+        const { attachLive } = await import('./core/browser.mjs')
+        const { ctx, reused } = await attachLive('douyin')
+        const page = ctx.pages()[0] || await ctx.newPage()
+        if (!/douyin\.com/.test(page.url())) {
+          await page.goto('https://creator.douyin.com/creator-micro/home', { waitUntil: 'domcontentloaded', timeout: 60000 })
+          await page.waitForTimeout(2500)
+        }
+        const probe = await page.evaluate(() => ({
+          webdriver: navigator.webdriver,
+          plugins: navigator.plugins.length,
+          ua: navigator.userAgent.slice(0, 80),
+        }))
+        const alive = await douyinSession.checkAlive(ctx)
+        return json(res, 200, {
+          ok: true, reused, url: page.url(), ...probe,
+          loggedIn: alive.ok, why: alive.why || '',
+          note: 'webdriver=false 且 loggedIn=true 就是理想状态',
+        })
+      } catch (e) {
+        return json(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 300) })
+      }
+    }
     /* AI 自描述：接上来的 agent 先打这个，就知道能干什么、要不要确认 */
     if (req.method === 'GET' && p === '/agent') {
       return json(res, 200, { ok: true, base: `http://127.0.0.1:${PORT}`, ...MANIFEST })
@@ -478,6 +555,15 @@ const server = http.createServer(async (req, res) => {
       })
       return json(res, r.ok ? 200 : 502, r)
     }
+    /* 某条评论下面已有的回复（含我回过的）。
+     * 自动回复脚本靠它判断「这条我是不是已经回过」，比只看 replyCount 准 ——
+     * replyCount>0 可能是别人回的，盲目跳过会漏回一堆。 */
+    if (req.method === 'GET' && p === '/douyin/replies') {
+      const cid = u.searchParams.get('comment')
+      if (!cid) return json(res, 400, { ok: false, error: '要给 ?comment=<commentId>' })
+      const r = await douyinInsight.replies(cid, { count: Number(u.searchParams.get('count')) || 20 })
+      return json(res, r.ok ? 200 : 502, r)
+    }
     /* ── 抖音数据全量刷新（唯一会真去打抖音的入口，除启动预热外） ──
      *  平时 GET 全是读本地 state/cache/douyin/，这个才是"去抓一遍"。 */
     if (req.method === 'POST' && p === '/douyin/refresh') {
@@ -488,11 +574,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/douyin/cache') {
       return json(res, 200, { ok: true, at: douyinInsight.cacheInfo() })
     }
-    /* 回复评论：不 confirm 就只回显将要发什么（一个字节都不发） */
+    /* 回复评论：不 confirm 就只回显将要发什么（一个字节都不发）
+     * 🔴 commentId 可以是加密串，commentIdNum 是数字 id。数字 id 只有 www 域
+     *    评论接口给，发给抖音时也只认数字 —— 两个都给最稳，只给加密串时会自己反查。 */
     if (req.method === 'POST' && p === '/douyin/reply') {
       const body = await readBody(req)
       const r = await douyinManage.reply({
-        itemId: body.itemId, commentId: body.commentId, text: body.text, confirm: body.confirm === true,
+        itemId: body.itemId, commentId: body.commentId, commentIdNum: body.commentIdNum,
+        text: body.text, confirm: body.confirm === true,
       })
       return json(res, 200, { ok: true, ...r })
     }
@@ -529,6 +618,26 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, types: listTypes() })
     }
 
+    /* ── 策划台 ─────────────────────────────────────────────────────
+     * 策划 md 是「出片前的那道闸」，控制台必须看得见，否则闸形同虚设：
+     * 人不知道有几期待批，就会绕过它直接去视频工坊点生成。
+     * 三个端点都只碰 video/plans/ 下的 md，不碰别的目录。 */
+    if (p === '/plans' && req.method === 'GET') {
+      return json(res, 200, { ok: true, stock: planStock(), plans: listPlans() })
+    }
+    if ((m = p.match(/^\/plans\/([\w.-]+)$/)) && req.method === 'GET') {
+      const plan = readPlan(m[1])
+      if (!plan) return json(res, 404, { ok: false, error: `找不到策划 ${m[1]}` })
+      return json(res, 200, { ok: true, plan })
+    }
+    if ((m = p.match(/^\/plans\/([\w.-]+)\/status$/)) && req.method === 'POST') {
+      const body = await readBody(req)
+      const r = setPlanStatus(m[1], String(body.status || ''))
+      if (!r.ok) return json(res, 400, r)
+      logEvent('core', 'plan.status', { slug: m[1], from: r.prev, to: r.status })
+      return json(res, 200, r)
+    }
+
     /* ── 写文案（同步返回，不排队 —— 只要几秒，改一版文案不用等 80 秒渲染） ── */
     if (p === '/video/script' && req.method === 'POST') {
       const body = await readBody(req)
@@ -560,6 +669,10 @@ const server = http.createServer(async (req, res) => {
     if (p === '/pipeline/run' && req.method === 'POST') {
       const body = await readBody(req)
       if (!body.topic) return json(res, 400, { ok: false, error: '要给 topic（一个主题就行）' })
+      /* 策划闸：带了 plan 就校验它必须是 approved；strictPlans 打开后不带 plan 也拒绝。
+       * 默认不拦（试片/调模板很常见），但闸从此有代码了，不再是 UI 摆设。 */
+      const gate = checkPlanGate({ planSlug: body.plan, strict: body.strictPlans === true })
+      if (!gate.ok) return json(res, 403, gate)
       const j = enqueue({
         kind: 'pipeline', platform: 'video',
         title: `一条龙：${String(body.topic).slice(0, 30)}`,
@@ -567,9 +680,10 @@ const server = http.createServer(async (req, res) => {
           topic: body.topic, durSec: body.durSec, day: body.day,
           journalTitle: body.journalTitle, extra: body.extra,
           template: body.template || 'diary', petImage: body.petImage,
+          plan: gate.plan ? gate.plan.slug : null,
         },
       })
-      return json(res, 200, { ok: true, jobId: j.id, note: '排队中：写文案 → 出片，进度看 /jobs/:id/steps' })
+      return json(res, 200, { ok: true, jobId: j.id, plan: gate.plan ? gate.plan.slug : null, note: '排队中：写文案 → 出片，进度看 /jobs/:id/steps' })
     }
 
     /* ── 做视频 ── */
@@ -578,6 +692,9 @@ const server = http.createServer(async (req, res) => {
       if (!body.title && !(body.lines || []).length && !(body.segments || []).length) {
         return json(res, 400, { ok: false, error: '至少给个 title、lines 或 segments' })
       }
+      /* 同一道策划闸（见 /pipeline/run） */
+      const gate = checkPlanGate({ planSlug: body.plan, strict: body.strictPlans === true })
+      if (!gate.ok) return json(res, 403, gate)
       const j = enqueue({
         kind: 'video', platform: 'video',
         title: `视频：${body.title || (body.lines || [])[0] || (body.segments || [])[0]?.text || ''}`.slice(0, 60),
@@ -587,9 +704,10 @@ const server = http.createServer(async (req, res) => {
           /* diary 模板专用：Day 号、日记名、气泡/信息卡段落、皮套立绘 */
           day: body.day, journalTitle: body.journalTitle,
           segments: body.segments, petImage: body.petImage,
+          plan: gate.plan ? gate.plan.slug : null,
         },
       })
-      return json(res, 200, { ok: true, jobId: j.id })
+      return json(res, 200, { ok: true, jobId: j.id, plan: gate.plan ? gate.plan.slug : null })
     }
     if ((m = p.match(/^\/video\/preview\/(j\d+)$/)) && req.method === 'GET') {
       const j = getJob(m[1])
@@ -620,12 +738,31 @@ const server = http.createServer(async (req, res) => {
       }
       if (!video) return json(res, 400, { ok: false, error: '要 video 绝对路径，或 id（成片目录名）' })
       if (!fs.existsSync(video)) return json(res, 404, { ok: false, error: `视频文件不存在：${video}` })
+      /* 封面：显式给了就用给的；只给 id 就顺手找成片目录里的 cover.png
+       * （from-script 出的片子会带，抖音默认只会抽帧） */
+      let cover = body.cover
+      if (!cover && body.id) {
+        const c = path.join(OUT, path.basename(String(body.id)), 'cover.png')
+        if (fs.existsSync(c)) cover = c
+      }
       const j = enqueue({
         kind: 'publish', platform: body.platform,
         title: `投稿${body.platform === 'bili' ? 'B站' : '抖音'}：${body.title || ''}`.slice(0, 60),
-        params: { video, title: body.title, desc: body.desc, tags: body.tags },
+        params: {
+          video, title: body.title, desc: body.desc, tags: body.tags,
+          location: body.location, cover, headed: body.headed === true,
+          /* scheduleAt："2026-11-02 19:00"。给了就让抖音到点自己发 ——
+           * 这是唯一能真正减少验证码打扰的办法：一次上传一次验证，管一天。 */
+          scheduleAt: body.scheduleAt || body.schedule_at || '',
+        },
       })
-      return json(res, 200, { ok: true, jobId: j.id, video, note: '第一段只做 dry-run：填表+截图，停在发布前等你确认' })
+      return json(res, 200, {
+        ok: true, jobId: j.id, video,
+        scheduleAt: body.scheduleAt || null,
+        note: body.scheduleAt
+          ? `第一段只做 dry-run：填表+截图，定时 ${body.scheduleAt}，确认后由抖音到点发布`
+          : '第一段只做 dry-run：填表+截图，停在发布前等你确认',
+      })
     }
 
     /* ── 评论（默认关） ── */
@@ -652,9 +789,26 @@ const server = http.createServer(async (req, res) => {
         }),
       })
     }
+    /* 事后对账：脚本判失败、人手动发成功的那几条，按作品列表翻成 done */
+    if (p === '/jobs/reconcile' && req.method === 'POST') {
+      let works = []
+      try {
+        const r = await douyinInsight.works({ limit: 20, force: true })
+        works = (r && r.items) || []
+      } catch (e) {
+        log('对账取作品列表失败：' + String(e.message || e).slice(0, 120))
+      }
+      const fixed = reconcilePublish(works)
+      return json(res, 200, { ok: true, scanned: works.length, fixed })
+    }
+    /* 🔴 确认闸只能**显式放行**：body.confirm 必须严格等于 true。
+     *    以前写的是 `body.confirm !== false`，于是空 body / 非法 JSON /
+     *    字段名写错 / 字符串 "false" 全都会被判成"确认"——
+     *    一个字节不传的 curl 就能把视频发出去。这是全项目最重要的一道闸，
+     *    默认值必须朝"不发"的方向倒。撤销走 confirm:false 或干脆不给。 */
     if ((m = p.match(/^\/jobs\/(j\d+)\/confirm$/)) && req.method === 'POST') {
       const body = await readBody(req)
-      const j = resolveConfirm(m[1], body.confirm !== false)
+      const j = resolveConfirm(m[1], body.confirm === true)
       if (!j) return json(res, 404, { ok: false, error: '没有这个任务，或它不在等确认' })
       return json(res, 200, { ok: true, status: j.status })
     }

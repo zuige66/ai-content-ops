@@ -851,3 +851,22 @@ body {
     transition-duration: .001ms !important;
   }
 }
+
+/* ── 策划台：口播稿 ───────────────────────────────────────────────
+   这里不用 .tbl。表格会给每一句加行线，读起来像清单；口播稿是
+   一段要念出来的话，只需要「时间」和「句子」两列，行线反而打断节奏。
+   时间用等宽字体 + tabular-nums，五行对齐了才看得出节奏对不对。 */
+.plan-voice { border-top: 1px solid var(--rule); padding-top: 12px }
+.plan-voice__h {
+  font-size: var(--fs-small); color: var(--muted); margin-bottom: 6px;
+}
+.plan-voice__row {
+  display: flex; gap: 10px; padding: 5px 0;
+  font-size: 13px; line-height: 1.55;
+}
+.plan-voice__t {
+  flex: 0 0 62px; padding-top: 2px;
+  font-family: var(--font-mono); font-size: var(--fs-min);
+  color: var(--faint); font-variant-numeric: tabular-nums;
+}
+.plan-voice__x { flex: 1 1 auto; min-width: 0; color: var(--text) }

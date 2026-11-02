@@ -18,19 +18,24 @@ import { Icon, Btn, NumBox } from './core/ui.js'
 import { slideInk, startScan, toastEnter, toastLeave, sheetEnter, sheetLeave } from './core/motion.js'
 import { LoginView } from './views/login.js'
 import { VideoView } from './views/video.js'
+import { PlansView } from './views/plans.js'
 import { JobsView } from './views/jobs.js'
 import { LogsView } from './views/logs.js'
 import { DouyinView } from './views/douyin.js'
 
+/* 顺序就是干活的顺序：登录 → 账号 → 策划（闸）→ 出片 → 投递 → 排障。
+ * 策划排在视频工坊前面，是因为它本来就是前置条件 —— 侧栏的顺序
+ * 会被人当成流程，摆错了等于暗示"可以跳过"。 */
 const MENUS = [
   { key: 'login', icon: 'shield', label: '平台登录' },
   { key: 'douyin', icon: 'spark', label: '抖音账号' },
+  { key: 'plans', icon: 'doc', label: '策划台' },
   { key: 'video', icon: 'film', label: '视频工坊' },
   { key: 'jobs', icon: 'list', label: '任务中心' },
   { key: 'logs', icon: 'term', label: '运行日志' },
 ]
 
-const VIEWS = { login: LoginView, douyin: DouyinView, video: VideoView, jobs: JobsView, logs: LogsView }
+const VIEWS = { login: LoginView, douyin: DouyinView, plans: PlansView, video: VideoView, jobs: JobsView, logs: LogsView }
 
 /* 视图存在 hash 里：刷新页面还停在原来那屏，也能直接贴链接 */
 function readHash() {
@@ -39,7 +44,7 @@ function readHash() {
 }
 
 const App = {
-  components: { LoginView, DouyinView, VideoView, JobsView, LogsView },
+  components: { LoginView, DouyinView, PlansView, VideoView, JobsView, LogsView },
 
   setup() {
     const navEl = ref(null)

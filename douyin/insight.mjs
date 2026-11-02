@@ -275,6 +275,46 @@ async function resolveItem(idOrPlain) {
 }
 
 /* ── 评论列表 ── */
+/** www 域的评论接口。**数字 comment_id 只有这里有**（creator 那边给的是加密串），
+ *  而真正发回复的 multi_publish 只认数字 id —— 所以这张表是发回复的前置。
+ *
+ *  🔴 必须在**作品页**里发请求，不能在 www 首页：首页虽然同源、也返回 200，
+ *     但页面里没有 a_bogus 签名 SDK，拿到的是 HTML 风控页而不是 JSON。
+ *     （2026-11-02 实测：同一段 fetch 在 /video/<id> 里 200+JSON，在首页 200+HTML） */
+export async function commentsWeb(awemeId, { count = 50 } = {}) {
+  const p = await pageFor('web')
+  const url = `${WEB}/aweme/v1/web/comment/list/?device_platform=webapp&aid=6383&aweme_id=${awemeId}&cursor=0&count=${count}&item_type=0`
+
+  const run = () => p.evaluate(async (u) => {
+    try {
+      const res = await fetch(u, { credentials: 'include' })
+      const t = await res.text()
+      let j = null
+      try { j = JSON.parse(t) } catch { }
+      return { status: res.status, json: j, raw: t.slice(0, 160) }
+    } catch (e) { return { status: 0, error: String(e).slice(0, 160) } }
+  }, url)
+
+  let r = await run()
+  if (!r.json) {
+    /* 首次多半是在首页 —— 切到作品页拿签名上下文再试一次 */
+    await p.goto(`${WEB}/video/${awemeId}`, { waitUntil: 'domcontentloaded', timeout: 45000 }).catch(() => { })
+    await p.waitForLoadState('load', { timeout: 15000 }).catch(() => { })
+    await p.waitForTimeout(2500)
+    r = await run()
+  }
+  if (!r.json) return { ok: false, error: `web 评论接口 ${r.status}${r.error ? '：' + r.error : '，返回非 JSON：' + (r.raw || '').slice(0, 80)}` }
+
+  const rows = (r.json.comments || r.json.comment_info_list || []).map(c => ({
+    numId: String(c.cid || c.comment_id || ''),      // 数字 id：回复要用这个
+    text: String(c.text || ''),
+    user: (c.user && c.user.nickname) || '',
+    createTime: Number(c.create_time) || 0,
+    replyTotal: Number(c.reply_comment_total ?? c.reply_count ?? 0) || 0,
+  })).filter(x => /^\d+$/.test(x.numId))
+  return { ok: true, comments: rows, total: Number(r.json.total) || rows.length }
+}
+
 export async function comments(idOrPlain, { count = 20, cursor = 0, sort = 'TIME', force = false } = {}) {
   const it = await resolveItem(idOrPlain)
   if (!it.id) return { ok: false, error: it.error }
@@ -282,21 +322,53 @@ export async function comments(idOrPlain, { count = 20, cursor = 0, sort = 'TIME
     const u = `${CREATOR}/aweme/v1/creator/comment/list/?cursor=${cursor}&count=${count}&item_id=${encodeURIComponent(it.id)}&sort=${sort}&aid=2906`
     const r = await jget(u)
     if (!r.json) return { ok: false, error: r.error || `评论接口返回 ${r.status}` }
-    const rows = (r.json.comment_info_list || []).map(c => ({
-      id: c.comment_id,
-      text: c.text,
-      digg: Number(c.digg_count) || 0,
-      replyCount: Number(c.reply_count) || 0,
-      createTime: Number(c.create_time) || 0,
-      isAuthor: Boolean(c.is_author),
-      user: (c.user_info && c.user_info.screen_name) || '',
-      avatar: (c.user_info && c.user_info.avatar_url) || '',
-      userId: (c.user_info && c.user_info.user_id) || '',
-    }))
+    /* 加密 → 数字：靠 (昵称 + 正文) 配对。图片评论正文为空，只能靠昵称+时间兜，
+     * 配不上就没 numId —— 调用方必须判断，别拿加密串去发回复（会「参数不合法」）。 */
+    const web = await commentsWeb(it.plain || idOrPlain, { count: 50 }).catch((e) => ({ ok: false, error: String(e && e.message || e).slice(0, 160) }))
+    const key = (u, t) => `${String(u).trim()}|${String(t).trim()}`
+    const numMap = new Map()
+    const userCount = new Map()      // 昵称 → 出现次数（兜底用，只有唯一时才敢配）
+    if (web && web.ok) {
+      for (const w of web.comments) {
+        numMap.set(key(w.user, w.text), w.numId)
+        const u = String(w.user).trim()
+        userCount.set(u, (userCount.get(u) || 0) + 1)
+      }
+    }
+
+    const rows = (r.json.comment_info_list || []).map(c => {
+      const user = (c.user_info && c.user_info.screen_name) || ''
+      const text = String(c.text || '')
+      /* 图片评论在 creator 侧 text 为空、web 侧是「[图片表情]」，按正文永远配不上；
+       * 所以退回按昵称配 —— 前提是这个昵称在这批评论里唯一，否则宁可不配。 */
+      let numId = numMap.get(key(user, text)) || ''
+      if (!numId && userCount.get(String(user).trim()) === 1) {
+        const w = web.comments.find(x => String(x.user).trim() === String(user).trim())
+        numId = (w && w.numId) || ''
+      }
+      return {
+        id: c.comment_id,
+        numId,   // 发回复用这个；空=没配上
+        text,
+        digg: Number(c.digg_count) || 0,
+        replyCount: Number(c.reply_count) || 0,
+        createTime: Number(c.create_time) || 0,
+        isAuthor: Boolean(c.is_author),
+        isImage: Boolean(c.image_list && c.image_list.length),
+        image: (c.image_list && c.image_list[0] && c.image_list[0].url_list && c.image_list[0].url_list[0]) || '',
+        user,
+        avatar: (c.user_info && c.user_info.avatar_url) || '',
+        userId: (c.user_info && c.user_info.user_id) || '',
+      }
+    })
     return {
       ok: true,
       item: it.item ? { id: it.id, plainId: it.plain, title: it.item.title, cover: it.item.cover } : { id: it.id, plainId: it.plain },
       comments: rows,
+      /* 数字 id 是发回复的前提，这里把 web 那一步的成败透出来，排错不用猜 */
+      webOk: Boolean(web && web.ok),
+      webError: (web && web.error) || '',
+      webTotal: (web && web.total) || 0,
       total: Number(r.json.total_count) || rows.length,
       hasMore: Boolean(r.json.has_more),
       cursor: r.json.cursor,

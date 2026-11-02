@@ -21,8 +21,14 @@ config.json
 # 本地工具 / 工作目录
 .taste-skill/
 .workbuddy-ai/
+# WorkBuddy 会话记忆（automation 状态），同样是本机产物
+.workbuddy/
 # 内部调研与第三方参考代码，不进公开仓库
 docs/
+
+# 调试临时件：根目录随手落下的 .tmp-*（历史上有过，见 AGENTS.md「调试留痕」）
+.tmp-*
+*.tmp
 
 # 杂项
 *.log

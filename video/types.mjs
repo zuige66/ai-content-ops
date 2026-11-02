@@ -28,6 +28,18 @@ export const TYPES = {
     maxVisible: 2,
     segChars: [18, 30],
   },
+  review: {
+    id: 'review',
+    name: '项目展示',
+    tag: '横屏 16:9',
+    desc: '左画框装截图 + 右说明牌，5 镜硬切，每镜一个卖点。适合 GitHub 项目推荐、工具介绍',
+    width: 1920,
+    height: 1080,
+    /* 这套不吃「常驻几条」——它一镜只显示一屏内容，没有气泡流 */
+    maxVisible: 0,
+    /* 单镜字幕的目标区间。30 秒 5 镜，总字数控制在 115~130 */
+    segChars: [15, 30],
+  },
 }
 
 export const DEFAULT_TYPE = 'diary'

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>cover-pick 模板 · 项目推荐封面（竖屏 1080×1440）</title>
+<style>
+/* ══════════════════════════════════════════════════════════════
+   cover-pick 模板：项目推荐系列封面。竖屏 1080×1440（抖音 3:4）。
+   静态截图，不录像。
+
+   四要素 + 三层景深（见 video/series/github-picks.md 第七节）：
+   · 远景：项目截图平铺成墙，blur 26px + 压暗 → 只读作"一堆界面"
+   · 中景：大字 + 一张清晰截图（白边 + 硬投影 + 透视）
+   · 前景：大肥鱼，全清晰，硬投影压左下
+
+   🔴 全清晰 = 全平淡。三层里必须两层是虚的，主体才立得住。
+   所以背景墙不是"装饰"，是景深的底座 —— 它一清晰，整张封面就塌成
+   一堆截图拼贴，观众的眼睛找不到落点。
+
+   为什么竖屏 1440 而不是 1920：抖音信息流里 3:4 才不被裁上下。
+   1920 的 9:16 在列表页会被截掉三分之一，大字正好被切。
+   ══════════════════════════════════════════════════════════════ */
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;overflow:hidden;background:#0E1116}
+body{font-family:"Microsoft YaHei","PingFang SC",sans-serif;position:relative}
+
+/* ── 远景：截图墙 ─────────────────────────────────────────────
+   2×2 铺满，整体放大 1.18 倍再虚化 —— 放大是为了让模糊后的边缘
+   不会露出画布外的黑边；虚化半径 26px 刚好糊掉所有文字，
+   但保留界面的"色块感"，让人一眼知道那是软件界面。 */
+#wall{position:absolute;inset:-10%;z-index:0;
+  background-size:50% 50%;background-repeat:repeat;
+  background-position:center;
+  filter:blur(26px) brightness(.62) saturate(.9);
+  transform:scale(1.12)}
+
+/* 压暗层：光靠 brightness 不够，还得把中间压下去，否则大字会和背景糊在一起 */
+#scrim{position:absolute;inset:0;z-index:1;
+  background:
+    linear-gradient(180deg,rgba(14,17,22,.6) 0%,rgba(14,17,22,.1) 40%,rgba(14,17,22,.55) 100%),
+    radial-gradient(86% 66% at 26% 28%,rgba(14,17,22,0) 0%,rgba(14,17,22,.5) 100%)}
+
+/* ── 中景 1：大字 ───────────────────────────────────────────── */
+#head{position:absolute;left:78px;top:96px;z-index:4;
+  transform:perspective(1600px) rotateY(-8deg);transform-origin:left center}
+#brand{font-size:26px;font-weight:700;color:rgba(245,241,234,.55);
+  letter-spacing:8px;margin-bottom:8px}
+#big{font-size:134px;font-weight:900;line-height:.98;letter-spacing:-4px;
+  color:#F5F1EA;white-space:nowrap;
+  /* 深色底上白字要有"实体感"，靠的是深投影不是发光 */
+  text-shadow:0 10px 0 rgba(0,0,0,.42),0 22px 46px rgba(0,0,0,.55)}
+#sub{font-size:110px;font-weight:900;line-height:1.06;letter-spacing:-2px;
+  color:#D2452F;white-space:nowrap;margin-top:6px;
+  /* 朱红字配白描边：在深底上把字的边界"顶"出来 */
+  text-shadow:
+    -4px -4px 0 #F5F1EA,4px -4px 0 #F5F1EA,-4px 4px 0 #F5F1EA,4px 4px 0 #F5F1EA,
+    0 -4px 0 #F5F1EA,0 4px 0 #F5F1EA,-4px 0 0 #F5F1EA,4px 0 0 #F5F1EA,
+    0 14px 0 rgba(0,0,0,.4)}
+
+/* 星标默认不出现：副标题已经写了「一周四千星」，再贴一个 4.4k 是重复信息。
+   要单独强调星数时才传 star（比如某期标题里没有数字）。 */
+#star{display:none;position:absolute;left:88px;top:520px;z-index:5;
+  background:#D2452F;color:#fff;font-size:34px;font-weight:800;
+  padding:10px 24px;border-radius:8px;letter-spacing:1px;
+  transform:rotate(-3deg);
+  box-shadow:6px 7px 0 rgba(0,0,0,.45)}
+#star small{font-size:22px;opacity:.8;margin-left:6px;font-weight:600}
+
+/* ── 中景 2：清晰截图（白边 + 硬投影 + 透视）───────────────── */
+#shotWrap{position:absolute;right:-30px;top:104px;width:1150px;z-index:3;
+  transform:perspective(1800px) rotateY(-16deg) rotateX(3deg);transform-origin:right center}
+#shot{width:100%;display:block;border-radius:10px;
+  border:12px solid #F5F1EA;
+  box-shadow:26px 34px 0 rgba(0,0,0,.42),0 40px 90px rgba(0,0,0,.6)}
+
+/* ── 前景：大肥鱼 ───────────────────────────────────────────── */
+/* 硬投影（0 模糊）是这套视觉的"贴纸感"来源，和正片气泡是同一套语言 */
+#pet{position:absolute;left:14px;bottom:-46px;width:506px;z-index:6;}
+  filter:drop-shadow(18px 24px 0 rgba(0,0,0,.42))}
+#pet img{width:100%;display:block}
+</style>
+</head>
+<body>
+<div id="wall"></div>
+<div id="scrim"></div>
+<div id="head">
+  <div id="brand">GITHUB 项目推荐</div>
+  <div id="big"></div>
+  <div id="sub"></div>
+</div>
+<div id="star"></div>
+<div id="shotWrap"><img id="shot" alt=""></div>
+<div id="pet"><img alt=""></div>
+
+<script>
+/* 入口：window.__COVERPICK__({ brand, big, sub, star, starNote, shot, wall:[url], pet })
+ * 图片一律传 file:// 绝对路径 —— 模板是 file:// 打开的，相对路径会解析错。 */
+window.__COVERPICK__ = async function (d) {
+  /* 背景墙用 CSS 平铺，不用 img 元素：file:// 下 4 张 img 放进 grid，
+     经常因为解码时序漏掉一两格，截出来右下角是纯黑。background-repeat
+     由浏览器一次画完，不存在这个问题。 */
+  const wall = document.getElementById('wall')
+  if (d.wall && d.wall.length) wall.style.backgroundImage = `url("${d.wall[0]}")`
+  document.getElementById('brand').textContent = d.brand || 'GITHUB 项目推荐'
+  document.getElementById('big').textContent = d.big || ''
+  document.getElementById('sub').textContent = d.sub || ''
+
+  const star = document.getElementById('star')
+  if (d.star) {
+    star.innerHTML = ''
+    star.appendChild(document.createTextNode(d.star))
+    if (d.starNote) {
+      const s = document.createElement('small')
+      s.textContent = d.starNote
+      star.appendChild(s)
+    }
+  } else {
+    star.style.display = 'none'
+  }
+  if (d.star) star.style.display = 'block'
+
+  const shot = document.getElementById('shot')
+  if (d.shot) shot.src = d.shot
+
+  const petImg = document.querySelector('#pet img')
+  if (d.pet) petImg.src = d.pet
+
+  /* 等所有图真的解码完再报 ready —— 少等一张，截出来就是半截空白 */
+  await Promise.all(Array.from(document.images).map(im =>
+    im.complete ? Promise.resolve() : new Promise(r => { im.onload = im.onerror = r })
+  ))
+  /* 再等一帧，确保模糊滤镜和透视都完成合成 */
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
+  window.__READY__ = true
+}
+</script>
+</body>
+</html>

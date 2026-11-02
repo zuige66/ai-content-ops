@@ -8,7 +8,7 @@
  *   2 倍截 + Lanczos 缩到 1920，等于做了一次高质量降采样，字口干净。
  *
  * 用法：
- *   node video/cover.mjs                          # 用 _script.json
+ *   node video/cover.mjs                          # 用 video/scripts/_script.json
  *   node video/cover.mjs path/to/script.json
  *   node video/cover.mjs --big "白饭不够吃" --sub "一句话副标题" --day 3
  *   node video/cover.mjs --out video/out/cover.png --scale 1
@@ -82,8 +82,11 @@ if (import.meta.url === 'file:///' + process.argv[1].replace(/\\/g, '/')) {
   const get = k => { const i = args.indexOf('--' + k); return i >= 0 ? args[i + 1] : undefined }
   const scriptFile = args.find(a => !a.startsWith('--') && a.endsWith('.json'))
   let s = {}
+  /* 脚本统一放 video/scripts/：根目录只留入口文件，翻起来才有规律。
+   * 显式传路径的优先级最高，缺省才回落到默认那份。 */
+  const DEFAULT_SCRIPT = path.join(ROOT, 'video', 'scripts', '_script.json')
   if (scriptFile) s = JSON.parse(fs.readFileSync(scriptFile, 'utf8'))
-  else if (fs.existsSync(path.join(ROOT, '_script.json'))) s = JSON.parse(fs.readFileSync(path.join(ROOT, '_script.json'), 'utf8'))
+  else if (fs.existsSync(DEFAULT_SCRIPT)) s = JSON.parse(fs.readFileSync(DEFAULT_SCRIPT, 'utf8'))
 
   const res = await makeCover({
     big: get('big') || s.coverText || s.journalTitle || '红烧鱼日记',
