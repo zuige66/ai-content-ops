@@ -1,0 +1,22 @@
+# 行尾统一（2026-11-03 加）
+# 起因：仓库里一半文件 LF、一半 CRLF，编辑器一保存就整文件重写，
+# server.mjs 曾出现「2086 行变更但真实改动只有 10 行」的假 diff。
+# 规矩：仓库里一律存 LF，checkout 出来也是 LF；只有 Windows 脚本保留 CRLF。
+
+* text=auto eol=lf
+
+# cmd.exe 对换行敏感，批处理和 VBScript 必须 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.vbs text eol=crlf
+
+# 二进制，不做任何转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.mp3 binary
+*.mp4 binary
+*.woff2 binary
+*.binarypb binary

@@ -34,3 +34,7 @@ docs/
 *.log
 .DS_Store
 Thumbs.db
+
+# 下划线前缀 = 随手写的试错脚本（硬编码时间戳 ID、只跑一次），不进仓库
+# 有留存价值的升级成正式工具，见 AGENTS.md「调试留痕」
+tools/_*.mjs
