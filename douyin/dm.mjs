@@ -76,14 +76,31 @@ async function waitReady(timeoutMs = 25000) {
  *    同一条消息」。先把 transform 清掉；清不掉再 reload 兜底。 */
 async function ensureLayout() {
   const fixed = await page.evaluate(() => {
+    let n = 0
     const wrap = document.querySelector('[class*="ConversationListwrapper"]')
-    if (!wrap) return 0
-    const m = getComputedStyle(wrap).transform
-    if (m && m !== 'none' && /matrix\(1,\s*0,\s*0,\s*1,\s*-?\d/.test(m)) {
-      wrap.style.transform = 'none'
-      return 1
+    if (wrap) {
+      const m = getComputedStyle(wrap).transform
+      if (m && m !== 'none' && /matrix\(1,\s*0,\s*0,\s*1,\s*-?\d/.test(m)) {
+        wrap.style.transform = 'none'
+        n++
+      }
     }
-    return 0
+    /* 🔴 2026-11-03 新增：展开「陌生人消息」之后，抖音会多出一个
+     *    `conversationStrangerConversationListtransition` 的 absolute 容器，
+     *    它的 rect 和整个会话列表**完全重合**（实测 [0,60,303,804]），而且
+     *    pointer-events: auto —— 于是所有 mouse.click 都被它吃掉。
+     *
+     *    表现极具迷惑性：元素坐标算对了、elementFromPoint 也命中了子元素、
+     *    但点完 curConversation 纹丝不动，openSession 重试 3 次全失败；
+     *    locator.click() 直接 actionability 超时。
+     *    解法就是把它的 pointer-events 关掉让事件穿透（实测立刻恢复）。
+     *    React 重渲染会把这个内联样式冲掉，所以每次 ensureLayout 都要补一刀。 */
+    const tr = document.querySelector('[class*="conversationStrangerConversationListtransition"]')
+    if (tr && getComputedStyle(tr).pointerEvents !== 'none') {
+      tr.style.pointerEvents = 'none'
+      n++
+    }
+    return n
   }).catch(() => 0)
   if (fixed) {
     await page.waitForTimeout(800)
@@ -112,7 +129,12 @@ export async function close() {
 /** 从会话项的一坨文本里剥出干净昵称。
  *  原始形如「森波拉周四10分钟内在线」「＠小邓不吃香菜08/16」——
  *  时间戳会粘在昵称后面，不剥掉的话按名字匹配会话永远匹配不上。 */
-const TIME_TAIL = /(昨天\s*\d{1,2}:\d{2}|\d{1,2}:\d{2}|\d{1,2}\/\d{1,2}|周[一二三四五六日])\s*$/
+/* 会话列表标题后面会被 UI 粘上时间/在线状态，必须剥掉 —— 否则
+ * `state.dmSeen["金麦味片46分钟前"]` 和下一轮的 `"金麦味片3分钟前"` 是两个 key，
+ * 记账全乱，而且按名字点会话也对不准。
+ * 🔴 2026-11-03 补：原来只认「12:34」「10/29」「周三」这些绝对时间，
+ *    漏了抖音最常用的相对时间「46分钟前」「3小时前」「昨天」「刚刚」。 */
+const TIME_TAIL = /(\d+\s*秒钟?前|\d+\s*分钟前|\d+\s*小时前|\d+\s*天前|刚刚|前天|昨天\s*\d{1,2}:\d{2}|昨天|星期[一二三四五六日]|周[一二三四五六日]|\d{1,2}:\d{2}|\d{1,2}\/\d{1,2}|\d{4}-\d{1,2}-\d{1,2})\s*$/
 const ONLINE_TAIL = /\s*\d*分钟内?在线\s*$|\s*在线\s*$/
 export function cleanName(raw) {
   let s = String(raw || '').trim()
@@ -122,6 +144,43 @@ export function cleanName(raw) {
     if (s === before) break
   }
   return s
+}
+
+/** 诊断用：拿到内部 page（只给排查脚本用，业务代码别调） */
+export function _dbgPage() { return page }
+
+/** 诊断用：dump 会话列表的真实几何 + 当前选中的会话。
+ *  排查「openSession 点了没反应 / 点错人」时先跑这个 —— 2026-11-03 加的，
+ *  那次现象是点 3 次都没切过去，光看代码猜不出来是 transform 还是命中问题。 */
+export async function debugLayout() {
+  await open()
+  return page.evaluate(() => {
+    const wrap = document.querySelector('[class*="ConversationListwrapper"]')
+    const cur = document.querySelector('[class*="curConversation"]')
+    const ct = cur && cur.querySelector('[class*="title"]')
+    const items = [...document.querySelectorAll('[class*="conversationConversationItemwrapper"]')]
+    return {
+      transform: wrap ? getComputedStyle(wrap).transform : '（没找到列表容器）',
+      wrapRect: wrap ? (r => [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)])(wrap.getBoundingClientRect()) : null,
+      scrollTop: wrap ? wrap.scrollTop : null,
+      curName: (ct && ct.textContent || '').trim(),
+      curNameClean: (() => {
+        const t = (ct && ct.textContent || '').trim()
+        return t
+      })(),
+      strangerBox: Boolean(document.querySelector('[class*="conversationStrangerBoxwrapper"]')),
+      items: items.map((el, i) => {
+        const t = el.querySelector('[class*="title"]')
+        const r = el.getBoundingClientRect()
+        return {
+          i,
+          title: (t && t.textContent || '').trim(),
+          rect: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)],
+          hit: r.width > 0 && r.x > 0 && r.y > 0 && r.y < innerHeight,
+        }
+      }),
+    }
+  })
 }
 
 /** 抖音把没互关的人的会话折叠在「陌生人消息」这一栏下面，**默认不展开**。
@@ -284,8 +343,18 @@ export async function openSession(iOrName) {
         const t = el.querySelector('[class*="title"]')
         const txt = (t && t.textContent || '').trim()
         if (!txt.includes(want)) continue
-        const r = el.getBoundingClientRect()
-        return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), name: txt, visible: r.x > 0 && r.y > 0 && r.y < innerHeight - 20 }
+        /* 🔴 2026-11-03：会话变多（展开陌生人分组后有 11 个）以后，排在第 8 位
+         *    往后的会掉到视口外，算出来的坐标点不到 —— 表现是「点了 3 次都没
+         *    切到『活这就行』」。先滚进视口中间再取坐标。 */
+        let r = el.getBoundingClientRect()
+        if (r.bottom > innerHeight - 10 || r.top < 70) {
+          el.scrollIntoView({ block: 'center' })
+          /* 滚完布局还没落定的情况实测存在，强制一次回流再量 */
+          void el.offsetHeight
+          r = el.getBoundingClientRect()
+        }
+        /* 列表贴着窗口左边缘，x 就是 0 —— 以前写 r.x > 0 让它永远判成"不可见" */
+        return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2), name: txt, visible: r.width > 0 && r.x > -5 && r.y > -5 && r.y < innerHeight - 20 }
       }
       return null
     }, iOrName)
@@ -336,6 +405,14 @@ const SYSTEM_HINTS = [
   /对方设置了隐私/,
   /消息已发出，但被对方拒收/,
   /我是抖音安全助手/,
+  /* 🔴 2026-11-03 补：这两句是"某个状态被确认"的播报，出现时**根本没有新消息**。
+   *    漏掉它们会让 lastIsOther 判成 true，于是去回一条空气 ——
+   *    实测「你头发乱了.」「爱在街头巷尾」几个老会话全中招。 */
+  /已确认聊天/,
+  /可继续(向你)?发送消息/,
+  /请礼貌发言/,
+  /自觉遵守.*自律公约/,
+  /因对方设置|对方已开启/,
 ]
 export function isSystemText(t) {
   const s = String(t || '')
@@ -347,25 +424,64 @@ export function isSystemText(t) {
  *  系统提示保留在列表里但打 system 标记，调用方自己决定要不要当"对方说话"。 */
 export async function readThread({ limit = 20 } = {}) {
   await open()
+
+  /* 🔴 2026-11-03 关键修复：**先滚到底再读**。
+   *    抖音打开一个长会话时，消息区不保证停在最新位置；`list.children` 只反映
+   *    当前已渲染的那段。不滚的话读到的"最后一条"是旧的 —— 后果极其严重：
+   *      · 明明我刚回过，读到的还是对方那句 → lastIsOther=true → 再回一遍
+   *      · 指纹基于旧内容 → 和 dmSeen 里存的永远对不上 → 幂等彻底失效
+   *    实测 00:24~00:33 连续三轮给同一个人发了 4 条几乎一样的话，就是这个。
+   *    滚动容器不一定是 list 自己，往上找几层谁溢出滚谁。 */
+  await page.evaluate(() => {
+    const list = document.querySelector('[class*="MessageListlist"]')
+    if (!list) return
+    let el = list
+    for (let i = 0; i < 6 && el; i++) {
+      if (el.scrollHeight > el.clientHeight + 20) el.scrollTop = el.scrollHeight
+      el = el.parentElement
+    }
+    const last = list.lastElementChild
+    if (last && last.scrollIntoView) last.scrollIntoView({ block: 'end' })
+  }).catch(() => { })
+  await page.waitForTimeout(700)
+
   const msgs = await page.evaluate((n) => {
     const list = document.querySelector('[class*="MessageListlist"]')
     if (!list) return { err: '没找到消息列表容器' }
     const rows = []
     for (const child of list.children) {
-      const text = (child.innerText || '').replace(/\s+/g, ' ').trim()
+      const full = (child.innerText || '').replace(/\s+/g, ' ').trim()
+      /* 🔴 2026-11-03：抖音把「时间头」和「正文」放在同一个 messageBox 里，
+       *    `child.innerText` 会把两者粘起来 —— 实测拿到「刚刚 又来问红烧鱼…」
+       *    「13分钟前 66怎么鱼给我回了」。正文带时间戳有两个后果：
+       *      ① 指纹每轮都变 → 永远认为"有新消息"
+       *      ② 日志/LLM 看到的原文是脏的
+       *    真正的正文只在 `[class*="contentBox"]` 里，优先用它。 */
+      const cb = child.querySelector('[class*="contentBox"]')
+      const cbText = cb ? (cb.innerText || '').replace(/\s+/g, ' ').trim() : ''
+      const text = cbText || full
       if (!text) continue
       const self = Boolean(child.querySelector('[class*="isFromMe"]'))
-      /* 时间分隔条有两种：一种是独立节点（没有 contentBox），
-       * 另一种混在消息节点里只剩一行时间文本。两种都要排掉，
-       * 否则「他> 昨天 20:42」会被当成对方说了一句话。 */
-      const timeOnly = !child.querySelector('[class*="contentBox"]')
-        || /^(昨天|今天|前天)?\s*\d{1,2}:\d{2}$/.test(text)
-        || /^周[一二三四五六日]\s*\d{1,2}:\d{2}$/.test(text)
-        || /^周[一二三四五六日]$/.test(text)
-        || /^\d{1,2}\/\d{1,2}$/.test(text)
+      /* 纯时间分隔条：正文取不到 + 整段就是一个时间标记。
+       * 注意「昨天 23:15 你已确认聊天…」这种**不是**时间条（有正文），
+       * 它走 isSystemText 那条路被滤掉，别在这里误杀。 */
+      const pureTime = /^(昨天|今天|前天)?\s*\d{1,2}:\d{2}$/.test(full)
+        || /^周[一二三四五六日](\s*\d{1,2}:\d{2})?$/.test(full)
+        || /^\d{1,2}\/\d{1,2}$/.test(full)
+        || /^(刚刚|\d+\s*(分钟|小时|天)前)$/.test(full)
+      const timeOnly = !cbText && pureTime
       rows.push({ text: text.slice(0, 300), self, timeOnly })
     }
-    return { rows: rows.slice(-n) }
+    /* 🔴🔴 2026-11-03 最要命的一个 bug 就在这一行。
+     *    `MessageListlist` 的 children 是**新在上、旧在下**（抖音聊天页如此），
+     *    而这里原来写 `rows.slice(-n)` —— 取的恰好是**最旧的 n 条**，
+     *    再交给调用方按"从旧到新"去取 `real[real.length-1]` 当"最新一条"，
+     *    于是「最新一条」实际是最旧那条，判断整个反过来：
+     *       · 我刚回完，它读到的还是对方那句 → lastIsOther=true → 再回一遍
+     *       · 指纹窗口一直在最旧那段滑动 → 和 dmSeen 永远对不上 → 幂等失效
+     *    实测后果：00:24~00:33 连发 4 条给同一个人。
+     *    正确做法：先取最新的 n 条（slice(0,n)），再反转成"旧→新"交给调用方。 */
+    return { rows: rows.slice(0, n).reverse() }
   }, limit)
   if (msgs.err) return { ok: false, error: msgs.err }
   const out = msgs.rows.map(r => ({ ...r, system: !r.timeOnly && isSystemText(r.text) }))
@@ -402,7 +518,7 @@ export async function sendText(text) {
   if (!body) throw new Error('私信内容不能为空')
   if (body.length > 500) throw new Error(`私信太长（${body.length} 字）`)
 
-  const editor = page.locator(SEL.editor).first()
+  const editor = page.locator('.messageEditorinputArea').first()
   await editor.waitFor({ state: 'visible', timeout: 10000 })
   await editor.click()
   await page.waitForTimeout(300)
@@ -410,18 +526,71 @@ export async function sendText(text) {
   await page.keyboard.type(body, { delay: 30 })
   await page.waitForTimeout(500)
 
-  const before = await page.evaluate(() => (document.body.innerText || '').length)
   await page.keyboard.press('Enter')
-  await page.waitForTimeout(2500)
+  await page.waitForTimeout(1200)
 
-  /* 校验：发出去之后输入框应该空了，页面长度会变 */
-  const after = await page.evaluate(() => {
-    const ed = document.querySelector('.messageEditorinputArea, [contenteditable="true"]')
-    return { len: (document.body.innerText || '').length, editorText: (ed && ed.innerText || '').trim() }
+  /* 🔴 2026-11-03 重写校验（第二次）。老版本两个毛病：
+   *   ① 选择器 `[contenteditable="true"]` 会先匹配到别的编辑框；空输入框的
+   *      innerText 是一个零宽空格 \u200b，`.trim()` 剥不掉。
+   *   ② 拿 `document.body.innerText` 长度变化当判据 —— 消息列表重排时长度可能不变。
+   *    改成「输入框真空了 && 最后一条是我发的」之后还有第三个坑：
+   *    抖音渲染是异步的，2.5 秒后新消息还没进 DOM（实测要 3~5 秒），
+   *    于是明明发出去了仍判失败 → dmSeen 不写 → 下一轮再发一遍（重复骚扰）。
+   *
+   * 所以现在轮询到 10 秒，并且**用正文前缀核对**，确认真的是这一条落了地。 */
+  const probe = async () => page.evaluate(() => {
+    const ed = document.querySelector('.messageEditorinputArea')
+    const editorText = ((ed && ed.innerText) || '').replace(/[\u200b-\u200d\ufeff]/g, '').trim()
+    const list = document.querySelector('[class*="MessageListlist"]')
+    let last = null
+    if (list) {
+      for (let i = list.children.length - 1; i >= 0; i--) {
+        const ch = list.children[i]
+        const cb = ch.querySelector('[class*="contentBox"]')
+        const t = cb ? (cb.innerText || '').trim() : ''
+        if (!t) continue
+        last = { text: t, self: Boolean(ch.querySelector('[class*="isFromMe"]')) }
+        break
+      }
+    }
+    return { editorText, last }
   })
-  const sent = after.editorText.length === 0 && after.len !== before
-  logEvent('douyin', 'dm.send', { ok: sent, len: body.length })
-  if (!sent) throw new Error('私信可能没发出去（输入框没清空）')
+
+  const head = body.slice(0, 8)
+  let sent = false, last = null
+  for (let i = 0; i < 10; i++) {
+    const s = await probe()
+    last = s.last
+    if (s.editorText.length === 0 && s.last && s.last.self && s.last.text.includes(head)) { sent = true; break }
+    await page.waitForTimeout(700)
+  }
+
+  /* 🔴 发送后同一个页面里消息列表**不一定重渲染** —— 实测等 10 秒，
+   *    最后一条仍是对方那条，但重新点一次会话（消息区重载）立刻就能看到
+   *    刚发出去的那句。所以这里补一次"重开会话再确认"，
+   *    否则每条私信都会误报失败（而且会让日志看起来像环境坏了）。 */
+  if (!sent) {
+    const curName = await page.evaluate(() => {
+      const c = document.querySelector('[class*="curConversation"]')
+      const t = c && c.querySelector('[class*="title"]')
+      return (t && t.textContent || '').trim()
+    })
+    if (curName) {
+      try {
+        await openSession(curName)
+        await page.waitForTimeout(1200)
+        const s = await probe()
+        last = s.last
+        if (s.editorText.length === 0 && s.last && s.last.self && s.last.text.includes(head)) sent = true
+      } catch { /* 重开失败就按原判据走 */ }
+    }
+  }
+
+  logEvent('douyin', 'dm.send', { ok: sent, len: body.length, last: last ? last.text.slice(0, 30) : '' })
+  if (!sent) {
+    const s = await probe()
+    throw new Error(`私信没落地（输入框${s.editorText ? '还有字：' + s.editorText.slice(0, 20) : '已空'}；最后一条：${s.last ? (s.last.self ? '我' : '对方') + '/' + s.last.text.slice(0, 20) : '无'}）`)
+  }
   return { sent: true, text: body }
 }
 

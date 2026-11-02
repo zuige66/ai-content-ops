@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>cover-multi 模板 · 三尺寸封面</title>
+<style>
+/* ══════════════════════════════════════════════════════════════
+   cover-multi：一次渲染一个尺寸，由 __COVER__({size, ...}) 驱动。
+   三套比例：16x9（视频片头）/ 4x3（抖音横封面）/ 3x4（抖音竖封面）。
+
+   为什么单独做这个模板，而不是拿 review 的 #intro 截图去裁：
+
+   抖音横封面是 **4:3**，不是 16:9。上传 16:9 的图后平台会盖一个 4:3
+   的裁剪框让人手选区域，默认居中 —— 左右各切约 12%，封面大字直接
+   砍成「sh-G」。竖封面是 3:4，拿 16:9 裁只剩中间一条。
+   三个比例的内容密度差得远，必须各自排版。（2026-11-02 用户指出）
+
+   🔴 4:3 和 3:4 版**不放项目截图**。封面检测会报「封面边框面积过大」
+      —— 白底 UI 截图整块铺进去必触发。深色底 + 字 + 鱼最安全。
+
+   ══════════════════════════════════════════════════════════════ */
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#0E1116}
+body{font-family:"Microsoft YaHei","PingFang SC","Noto Sans SC",sans-serif;
+  color:#F5F1EA;position:relative}
+
+/* 远景：虚化的界面纹理，只提供"底下有东西"的质感，不承载信息 */
+#wall{position:absolute;inset:-10%;background-size:cover;background-position:center;
+  filter:blur(34px) brightness(.3) saturate(.8);transform:scale(1.12)}
+#veil{position:absolute;inset:0;
+  background:
+    radial-gradient(72% 92% at 88% 16%,rgba(210,69,47,.15) 0%,transparent 62%),
+    linear-gradient(112deg,rgba(14,17,22,.97) 0%,rgba(14,17,22,.91) 52%,rgba(14,17,22,.82) 100%)}
+
+/* 文字块垂直居中。封面在信息流里是小图，重心太高显飘，
+   太低会被底部的时长角标压住。 */
+#box{position:absolute;inset:0;display:flex;flex-direction:column;
+  justify-content:center;padding:0 var(--pad);z-index:2}
+
+#brand{font-size:var(--fs-brand);font-weight:700;letter-spacing:.26em;
+  color:rgba(245,241,234,.56);line-height:1.1}
+#big{font-size:var(--fs-big);font-weight:900;line-height:.94;
+  letter-spacing:var(--ls-big);margin-top:var(--mt-big);white-space:nowrap;
+  /* 深底上白字要有实体感，靠深投影不是发光 */
+  text-shadow:0 8px 0 rgba(0,0,0,.4),0 18px 40px rgba(0,0,0,.5)}
+#rule{width:var(--rule-w);height:var(--rule-h);background:#D2452F;
+  border-radius:5px;margin:var(--rule-mt) 0 var(--rule-mb)}
+#sub{font-size:var(--fs-sub);font-weight:900;color:#FF6B4A;letter-spacing:.03em;
+  white-space:nowrap;text-shadow:0 8px 22px rgba(0,0,0,.55)}
+
+#pet{position:absolute;right:var(--pet-r);bottom:0;height:var(--pet-h);
+  width:auto;z-index:3;filter:drop-shadow(14px 20px 30px rgba(0,0,0,.55))}
+</style>
+</head>
+<body>
+<div id="wall"></div>
+<div id="veil"></div>
+<div id="box">
+  <div id="brand"></div>
+  <div id="big"></div>
+  <div id="rule"></div>
+  <div id="sub"></div>
+</div>
+<img id="pet" alt="">
+<script>
+/* 三套参数。字号是按"主字占宽"反推的，比例是**实测**的：
+   雅黑 900 下 `dsh-Go` 的宽度 ≈ 字号的 3.37 倍（不是 1.95 ——
+   一开始按 1.95 算，3:4 版直接把 "Go" 切出画布了）。
+   换项目名（长度不同）要重新量：写死比例只会错得更自信。
+
+   目标占宽：16:9 约 78%、4:3 约 76%、3:4 约 94%（竖封面缩略图最小，
+   字必须更满，否则信息流里读不出来；横版留白太多会显"空"，
+   2026-11-02 第一版 16:9 用 320 号只占 62%，右侧一片黑，重调）。 */
+const PRESETS = {
+  '16x9': {
+    /* 1920 可用宽 1920-92*2=1736。400 × 3.37 = 1348（78%），
+       右端落在 1440，鱼从 1630 起，留 190 的安全间隙。 */
+    pad: 92,
+    fsBrand: 32, fsBig: 400, lsBig: '-13px', mtBig: '12px',
+    ruleW: 280, ruleH: 8, ruleMt: '28px', ruleMb: '26px',
+    fsSub: 132, petH: 360, petR: 20,
+  },
+  '4x3': {
+    /* 1440 可用宽 1440-86*2=1268。320 × 3.37 = 1078（76%），
+       右端 1164；鱼宽约 255、从 1165 起，刚好擦边不压字。 */
+    pad: 86,
+    fsBrand: 36, fsBig: 320, lsBig: '-11px', mtBig: '14px',
+    ruleW: 260, ruleH: 9, ruleMt: '30px', ruleMb: '28px',
+    fsSub: 118, petH: 340, petR: 20,
+  },
+  '3x4': {
+    /* 810 可用宽 810-65*2=680。680 / 3.37 = 201，取 190 留边。 */
+    pad: 65,
+    fsBrand: 25, fsBig: 190, lsBig: '-7px', mtBig: '12px',
+    ruleW: 168, ruleH: 7, ruleMt: '26px', ruleMb: '24px',
+    fsSub: 92, petH: 285, petR: 6,
+  },
+}
+
+window.__COVER__ = function (d) {
+  const p = PRESETS[d.size] || PRESETS['16x9']
+  const r = document.documentElement.style
+  for (const [k, v] of Object.entries(p)) {
+    r.setProperty('--' + k.replace(/[A-Z]/g, m => '-' + m.toLowerCase()),
+      typeof v === 'number' ? v + 'px' : v)
+  }
+  document.getElementById('brand').textContent = d.brand || 'GITHUB 项目推荐'
+  document.getElementById('big').textContent = d.big || ''
+  document.getElementById('sub').textContent = d.sub || ''
+  const pet = document.getElementById('pet')
+  if (d.pet) pet.src = d.pet
+  if (d.wall) document.getElementById('wall').style.backgroundImage = `url("${d.wall}")`
+  document.title = 'cover ' + d.size
+}
+</script>
+</body>
+</html>

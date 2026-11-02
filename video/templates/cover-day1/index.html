@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Day1 纸墨封面 · 三尺寸</title>
+<style>
+/* ══════════════════════════════════════════════════════════════
+   Day1 封面模板（纸墨风 v2，2026-11-02）
+   ──────────────────────────────────────────────────────────────
+   v1 的问题（主人反馈「封面能不能换一个有大肥鱼，有 day1，有标题的」）：
+   · 鱼太小，缩在角落，信息流缩略图里几乎看不见
+   · DAY 1 只是左上角一行灰字，没有「这是系列第几天」的辨识度
+   · 标题占了 95% 宽度，鱼和徽章全被挤到边上
+
+   v2 版面重排：**左字右鱼，DAY 1 做成实心徽章**
+   ┌─────────────────────────────┬──────────┐
+   │ [DAY 1]                     │          │
+   │  七天账本                    │   大鱼    │
+   │   ─────                     │  (主角)   │
+   │   五十碗饭                   │          │
+   └─────────────────────────────┴──────────┘
+   · 鱼占画面右侧约 42% 宽，是**主体**不是装饰
+   · DAY 1 是琥珀实心方块 + 白字，缩略图里一眼认出系列
+   · 主字缩到 78% 宽，给鱼让位
+
+   三个尺寸各自排版（抖音的坑，见 .workbuddy-ai/memory/2026-11-02.md）：
+     · 16:9 (1920×1080)  视频片头 / 通用
+     · 4:3  (1440×1080)  **抖音「设置横封面」就是这个比例**
+     · 3:4  (810×1080)   抖音「设置竖封面」，信息流主展示位
+
+   🔴 封面不放截图/界面。抖音会报「封面边框面积过大」。
+   ══════════════════════════════════════════════════════════════ */
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#f2eee6}
+body{
+  font-family:"Microsoft YaHei","PingFang SC",sans-serif;
+  color:#13110f;position:relative;
+  background:radial-gradient(1100px 750px at 46% 42%,#fdfbf7 0%,#f2eee6 62%,#ebe5d9 100%);
+}
+
+/* 纸纹：极淡的点阵，只提供「这是一张纸」的触感 */
+#grain{
+  position:absolute;inset:0;pointer-events:none;
+  background-image:radial-gradient(rgba(19,17,15,.055) 1px,transparent 1px);
+  background-size:6px 6px;
+}
+
+/* 文字块：靠左，垂直居中，宽度受控给鱼让位 */
+#box{
+  position:absolute;left:0;top:0;bottom:0;
+  width:var(--box-w);
+  display:flex;flex-direction:column;justify-content:center;
+  padding-left:var(--pad);z-index:2;
+}
+
+/* DAY 1 徽章：琥珀实心方块 + 白字。这是系列辨识度，不是装饰 */
+#day{
+  display:inline-flex;align-items:center;align-self:flex-start;
+  background:#955905;color:#fdfbf7;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:var(--fs-day);font-weight:700;letter-spacing:.14em;
+  padding:var(--day-py) var(--day-px);border-radius:var(--day-r);
+  box-shadow:var(--day-sh) rgba(19,17,15,.22);
+}
+
+#big{
+  font-family:"Source Han Serif SC","Noto Serif CJK SC","Songti SC",SimSun,serif;
+  font-size:var(--fs-big);font-weight:700;line-height:1.04;
+  letter-spacing:-.02em;margin-top:var(--mt-big);white-space:nowrap;
+  color:#13110f;
+}
+
+#rule{width:var(--rule-w);height:var(--rule-h);background:#955905;
+  border-radius:4px;margin:var(--rule-mt) 0 var(--rule-mb)}
+
+#sub{
+  font-family:"Source Han Serif SC","Noto Serif CJK SC","Songti SC",SimSun,serif;
+  font-size:var(--fs-sub);font-weight:700;color:#955905;
+  letter-spacing:.01em;white-space:nowrap;
+}
+
+/* 红鱼：右侧主体。硬投影（0 模糊）才是纸墨风。 */
+#pet{
+  position:absolute;right:var(--pet-r);bottom:0;height:var(--pet-h);
+  width:auto;z-index:3;
+  filter:drop-shadow(9px 11px 0 rgba(19,17,15,.15));
+}
+
+/* 左下数据小标：封面要有一个「具体到不可能」的数，观众才停手 */
+#stat{
+  position:absolute;left:var(--pad);bottom:var(--stat-b);
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:var(--fs-stat);font-weight:700;color:#65635f;
+  letter-spacing:.05em;z-index:4;
+  max-width:var(--stat-w);
+  line-height:1.55;
+}
+</style>
+</head>
+<body>
+<div id="grain"></div>
+<div id="box">
+  <div id="day"></div>
+  <div id="big"></div>
+  <div id="rule"></div>
+  <div id="sub"></div>
+</div>
+<img id="pet" alt="">
+<div id="stat"></div>
+<script>
+/* 三套参数。主字 4 个汉字，占宽 ≈ 字号 × 4.1。
+   v2 的关键：**先定鱼占多宽，剩下的才给字**。
+   · 16:9 字区 58% = 1113，主字 250×4.1 = 1025（92%）
+   · 4:3  字区 62% = 893，主字 200×4.1 = 820（92%）
+   · 3:4  竖版并排放不下 → 改成**上下分区**：字在上 58%，鱼在下 42%
+   🔴 竖封面缩略图最小，字必须撑满，否则信息流里读不出来。 */
+const PRESETS = {
+  '16x9': {
+    /* 250×4.1 = 1025，字区 58% = 1113 —— 留 88 间隙，够。 */
+    pad: 92, boxW: '58%',
+    fsDay: 46, dayPy: '14px', dayPx: '30px', dayR: '12px', daySh: '6px 7px 0',
+    fsBig: 238, mtBig: '28px',
+    ruleW: 260, ruleH: 9, ruleMt: '34px', ruleMb: '26px',
+    fsSub: 104,
+    petH: 900, petR: 30,
+    fsStat: 32, statB: '58px', statW: '54%',
+  },
+  '4x3': {
+    /* 🔴 200×4.1 = 820，但字区 62% = 893 —— 鱼从 x≈893 起，
+     *    主字右端 820 会正好撞上。缩到 178（730）+ 鱼往右推出 40px。 */
+    pad: 76, boxW: '60%',
+    fsDay: 42, dayPy: '12px', dayPx: '26px', dayR: '11px', daySh: '5px 6px 0',
+    fsBig: 178, mtBig: '24px',
+    ruleW: 220, ruleH: 8, ruleMt: '28px', ruleMb: '22px',
+    fsSub: 88,
+    petH: 780, petR: -40,
+    fsStat: 28, statB: '46px', statW: '58%',
+  },
+  '3x4': {
+    /* 竖版：字在上半屏，鱼占下半屏右侧 */
+    pad: 58, boxW: '100%',
+    fsDay: 34, dayPy: '10px', dayPx: '20px', dayR: '9px', daySh: '4px 5px 0',
+    fsBig: 150, mtBig: '20px',
+    ruleW: 160, ruleH: 7, ruleMt: '22px', ruleMb: '18px',
+    fsSub: 72,
+    petH: 520, petR: -20,
+    fsStat: 22, statB: '26px', statW: '92%',
+  },
+}
+
+window.__COVER__ = function (d) {
+  const p = PRESETS[d.size] || PRESETS['16x9']
+  const r = document.documentElement.style
+  for (const [k, v] of Object.entries(p)) {
+    r.setProperty('--' + k.replace(/[A-Z]/g, m => '-' + m.toLowerCase()),
+      typeof v === 'number' ? v + 'px' : v)
+  }
+  /* 竖版：文字块整体上提，把下半屏让给鱼 */
+  if (d.size === '3x4') {
+    const box = document.getElementById('box')
+    box.style.height = '58%'
+    box.style.justifyContent = 'flex-start'
+    box.style.paddingTop = '56px'
+  }
+
+  document.getElementById('day').textContent = d.day || 'DAY 1'
+  document.getElementById('big').textContent = d.big || ''
+  document.getElementById('sub').textContent = d.sub || ''
+  const statEl = document.getElementById('stat')
+  statEl.innerHTML = String(d.stat || '')
+    .split('|')
+    .map((line) => `<div>${line.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</div>`)
+    .join('')
+  const pet = document.getElementById('pet')
+  if (d.pet) pet.src = d.pet
+  document.title = 'day1 cover ' + d.size
+}
+</script>
+</body>
+</html>

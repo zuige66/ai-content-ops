@@ -125,6 +125,18 @@ export function isWorkday(d = new Date()) {
   return weekday <= 5
 }
 
+/** 今天是不是**法定节假日**（不含周末）。
+ *
+ *  scheduler 用它决定「按工作日那张表跑，还是全天每小时一遍」。
+ *  ⚠️ 注意别的调用方想要的可能是「今天算不算放假」= isWorkday() 的反面，
+ *     那个包含周末；这里只认节假日表，两者语义不同，别混用。 */
+export function isHoliday(d = new Date()) {
+  const { day } = beijingNow(d)
+  const year = Number(day.slice(0, 4))
+  const holidays = HOLIDAYS.get(year)
+  return Boolean(holidays && holidays.has(day))
+}
+
 /** 现在是不是 DeepSeek 的高峰（贵）时段 */
 export function isPeak(d = new Date()) {
   if (!isWorkday(d)) return false       // 周末/节假日全天平峰

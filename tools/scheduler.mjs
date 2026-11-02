@@ -20,10 +20,41 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { ROOT } from '../core/log.mjs'
-import { isOffPeak, describe } from '../core/offpeak.mjs'
+import { isOffPeak, isWorkday, describe } from '../core/offpeak.mjs'
 
-/* 四个点全在 DeepSeek 平峰窗口里：8:00 早、13:00 午休、19:00 晚、23:00 夜 */
-const TARGETS = ['08:00', '13:00', '19:00', '23:00']
+/* ── 2026-11-03 zuige 定的时间表 ──
+ *
+ * 工作日：
+ *   12:15 第一轮 → 13:30 第二轮 → 18:15 第三轮 → 之后每间隔一小时一轮，
+ *   一直到**次日 08:15**。即：
+ *     12:15 13:30 18:15 19:15 20:15 21:15 22:15 23:15
+ *     00:15 01:15 02:15 … 07:15 08:15
+ *   ⚠️ 08:15~12:15、13:30~18:15 这两段**故意空着** —— 那是 DeepSeek 高峰
+ *      （工作日 9-12、14-18 价格翻倍），zuige 明确说「不用补」。
+ *
+ * 节假日：全天每小时 :15 跑一轮，共 24 轮。
+ *   ⚠️ 周末我按同一逻辑一起算进去了：DeepSeek 周末全天平峰，没有要避的高峰，
+ *      没理由留空档。zuige 原话只说「节假日」。若只想节假日生效，
+ *      把 targetsForNow() 里的 isWorkday 换成 isHoliday（已从 offpeak 导出）。
+ *
+ * 两段表都是「当天的 HH:MM」集合，tick 每 30 秒比一次，跨天由日期 key 天然区分。
+ */
+const pad = (n) => String(n).padStart(2, '0')
+const WORKDAY_FIXED = ['12:15', '13:30', '18:15']
+
+function workdayTargets() {
+  const out = [...WORKDAY_FIXED]
+  for (let h = 19; h <= 23; h++) out.push(`${pad(h)}:15`)   // 晚上：每小时一轮
+  for (let h = 0; h <= 8; h++) out.push(`${pad(h)}:15`)     // 次日凌晨 ~ 08:15
+  return out
+}
+function holidayTargets() {
+  return Array.from({ length: 24 }, (_, h) => `${pad(h)}:15`)
+}
+function targetsForNow(d = new Date()) {
+  return isWorkday(d) ? workdayTargets() : holidayTargets()
+}
+
 const LOG_DIR = path.join(ROOT, 'logs', 'scheduler')
 const STATE_FILE = path.join(ROOT, 'state', 'scheduler-state.json')
 
@@ -116,13 +147,16 @@ if (process.argv.includes('--once')) {
   const child = spawn(process.execPath, [path.join(ROOT, 'tools', 'auto-reply.mjs'), '--yes'], { cwd: ROOT, stdio: 'inherit' })
   child.on('close', c => process.exit(c || 0))
 } else {
-  log('定时器启动', { targets: TARGETS, now: describe() })
+  log('定时器启动', { targets: targetsForNow(), now: describe() })
   /* 启动时补跑一次：如果今天已经过了某个点但还没跑（比如开机晚了），
    * 只在 5 分钟内的容差窗口里补，避免半夜启动把早上 8 点那个点补上。 */
   const tick = async () => {
     await ensureServer().catch(() => { })
     const { day, hm } = nowKey()
-    if (TARGETS.includes(hm)) {
+    /* 🔴 每拍重新算 targets，不能启动时算一次存着 ——
+     *    跨天时「工作日表 / 节假日表」会切换（比如国庆收假那天凌晨），
+     *    存死的表会拿昨天的规则跑今天。 */
+    if (targetsForNow().includes(hm)) {
       const key = `${day} ${hm}`
       if (!state.done[key]) {
         if (!isOffPeak()) {

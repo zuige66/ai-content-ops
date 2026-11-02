@@ -875,12 +875,20 @@ const server = http.createServer(async (req, res) => {
         const c = path.join(OUT, path.basename(String(body.id)), 'cover.png')
         if (fs.existsSync(c)) cover = c
       }
+      /* 竖封面（3:4）：抖音信息流里竖封面才是主展示位，
+       * 只设横封面平台会提示「竖封面缺失，会影响作品流量」。
+       * 只给 id 时顺手找成片目录里的 cover-3x4.png。 */
+      let coverVert = body.coverVert
+      if (!coverVert && body.id) {
+        const c = path.join(OUT, path.basename(String(body.id)), 'cover-3x4.png')
+        if (fs.existsSync(c)) coverVert = c
+      }
       const j = enqueue({
         kind: 'publish', platform: body.platform,
         title: `投稿${body.platform === 'bili' ? 'B站' : '抖音'}：${body.title || ''}`.slice(0, 60),
         params: {
           video, title: body.title, desc: body.desc, tags: body.tags,
-          location: body.location, cover, headed: body.headed === true,
+          location: body.location, cover, coverVert, headed: body.headed === true,
           /* scheduleAt："2026-11-02 19:00"。给了就让抖音到点自己发 ——
            * 这是唯一能真正减少验证码打扰的办法：一次上传一次验证，管一天。 */
           scheduleAt: body.scheduleAt || body.schedule_at || '',

@@ -371,7 +371,7 @@ async function addLocation(page, dir, step, want) {
  * （带 DAY 号、大标题、皮套），比抽帧好看得多。
  * 流程：点「设置封面」→ 弹窗里上传 → 裁剪确认。同样尽力而为，失败不阻塞发布。
  */
-async function setCover(page, dir, step, coverPath) {
+async function setCover(page, dir, step, coverPath, coverVertPath) {
   if (!coverPath || !fs.existsSync(coverPath)) return { ok: false, skipped: true }
   try {
     /* 🔴 入口不是「设置封面」那四个字（那是区块标题，点了没反应），
@@ -417,8 +417,60 @@ async function setCover(page, dir, step, coverPath) {
     }
     await page.waitForTimeout(2200)
     const shotPath = await shot(page, dir, '03c-cover.png')
-    step('封面已上传（自定义）')
-    return { ok: true, shotPath }
+    step('封面已上传（自定义·横 4:3）')
+
+    /* ── 竖封面（3:4）────────────────────────────────────────
+     * 🔴 2026-11-03 实测：**弹窗顶部就有「设置横封面 / 设置竖封面」两个 tab**，
+     *    而且设置完横封面后弹窗**不会自动关**。
+     *    上一版先尝试重新点「选择封面」入口 —— 那个占位块已经变成缩略图，
+     *    文字节点没了，直接超时。正确顺序：**留在弹窗里，直接切 tab**。
+     *
+     * 竖封面在抖音信息流里是主展示位，不设平台会提示
+     * 「竖封面缺失，会影响作品流量」。失败不阻塞（横封面已好），但要留痕。 */
+    let vert = { ok: false, skipped: !coverVertPath }
+    if (coverVertPath && fs.existsSync(coverVertPath)) {
+      try {
+        /* 🔴 用宽松匹配。`^设置竖封面$` 会漏 —— tab 里的文字节点可能带空格
+         *    或被拆成多个 span（实测截图里 tab 明明在顶部，精确匹配却 count=0）。 */
+        let tab = page.getByText(/设置竖封面/).first()
+        if (!(await tab.count())) tab = page.getByRole('tab', { name: /竖封面/ }).first()
+        if (!(await tab.count())) tab = page.getByText(/竖封面/).first()
+        if (!(await tab.count())) {
+          step('⚠ 没找到「设置竖封面」tab —— 竖封面保持抖音自动生成')
+        } else {
+          await tab.click({ timeout: 6000 })
+          await page.waitForTimeout(1800)
+          const f2 = page.locator('input[type=file][accept*="image"]').last()
+          if (!(await f2.count())) {
+            step('⚠ 竖封面 tab 里没找到上传入口')
+          } else {
+            await f2.setInputFiles(coverVertPath)
+            await page.waitForTimeout(3200)
+            await shot(page, dir, '03d-cover-vert-crop.png')
+            for (const name of ['确定', '完成', '确认', '保存']) {
+              const b = page.getByRole('button', { name, exact: true }).last()
+              if (await b.count()) { await b.click({ timeout: 5000 }).catch(() => { }); break }
+            }
+            await page.waitForTimeout(2200)
+            await shot(page, dir, '03d-cover-vert.png')
+            vert = { ok: true }
+            step('竖封面已上传（自定义·竖 3:4）')
+          }
+        }
+      } catch (e) {
+        step('⚠ 竖封面设置失败（不阻塞）：' + String(e && e.message || e).slice(0, 100))
+      }
+    }
+
+    /* 收尾：关掉封面弹窗（点右上 ×），回到主表单 */
+    try {
+      const closeBtn = page.getByRole('button', { name: '关闭' }).first()
+      if (await closeBtn.count()) await closeBtn.click({ timeout: 3000 }).catch(() => { })
+      else await page.keyboard.press('Escape').catch(() => { })
+      await page.waitForTimeout(1200)
+    } catch { /* 关不掉也不影响后续步骤 */ }
+
+    return { ok: true, shotPath, vert }
   } catch (e) {
     step('⚠ 封面上传失败（不阻塞）：' + String(e && e.message || e).slice(0, 100))
     await shot(page, dir, '03c-cover-fail.png')
@@ -518,22 +570,74 @@ async function setSchedule(page, dir, step, when) {
 /* ── AI 生成内容声明 ────────────────────────────────────────────
  * 《人工智能生成合成内容标识办法》2025-09-01 起强制施行：
  * 平台侧要勾选"内容由 AI 生成"的声明，否则可能限流/下架。
- * 抖音入口在「高级设置 → 作品声明 → 内容由 AI 生成」。
+ *
+ * 🔴 2026-11-02 实测纠正：入口**不是**「高级设置 → 作品声明」，
+ *    而是表单里那个 **「自主声明」** 下拉（在「添加合集」下面一行）。
+ *    点开是单选列表，选项含「内容由 AI 生成」/「内容为AI生成」这类文案。
+ *    旧代码只找「高级设置」，永远找不到，每次都报「没找到入口」——
+ *    结果这条合规项一直没勾上，等于裸奔。
  *
  * 这是**尽力而为但必须留痕**的一步：勾不上不能悄悄放过，
  * 要在 dry-run 的步骤里喊出来，让人在点确认前手动补。 */
 async function declareAiGenerated(page, dir, step) {
   try {
-    /* 先找「高级设置」把折叠区展开 */
+    const AI_RE = /内容由\s*AI\s*生成|AI\s*生成内容|人工智能生成|内容为\s*AI/i
+
+    /* ① 先试「自主声明」下拉 —— 实测这才是真入口 */
+    const decl = page.getByText('自主声明', { exact: true }).first()
+    if (await decl.count()) {
+      await decl.scrollIntoViewIfNeeded({ timeout: 4000 }).catch(() => { })
+      await decl.click({ timeout: 5000 }).catch(() => { })
+      await page.waitForTimeout(1200)
+      await shot(page, dir, '03e-ai-declare-open.png')
+
+      /* 🔴 2026-11-03 实测：点开「自主声明」弹的是**单选弹窗**，
+       *    列表第一项就是「内容由AI生成」，但必须
+       *    ① 点中那一行（radio）② 再点弹窗右下「确定」——
+       *    只点文字不点确定，弹窗关不掉，声明等于没设。
+       *    （上一版就是只点了文字，截图显示弹窗还开着。） */
+      /* 🔴 点文字没用 —— 弹窗里是一排 semi-design 单选，
+       *    文字节点上没有事件，点它 radio 还是空的（实测截图：六个选项全空）。
+       *    必须点到那一行的 **label / radio 本体**。 */
+      let opt = page.locator('label').filter({ hasText: AI_RE }).first()
+      if (!(await opt.count())) opt = page.getByRole('radio').first()
+      if (!(await opt.count())) opt = page.getByText(AI_RE).last()
+      if (await opt.count()) {
+        await opt.click({ timeout: 5000 }).catch(() => { })
+        await page.waitForTimeout(900)
+        /* 点「确定」把弹窗提交掉。按钮在弹窗右下，文案就是「确定」。
+         * 🔴 用 .last() —— 主表单里也可能有同名按钮，弹窗是后挂的 DOM。 */
+        let okBtn = page.getByRole('button', { name: '确定', exact: true }).last()
+        if (!(await okBtn.count())) okBtn = page.locator('.semi-modal button:has-text("确定")').last()
+        if (await okBtn.count()) {
+          await okBtn.click({ timeout: 5000 }).catch(() => { })
+          await page.waitForTimeout(1000)
+        } else {
+          step('⚠ 声明弹窗里没找到「确定」按钮')
+        }
+        const shotPath = await shot(page, dir, '03e-ai-declare.png')
+        /* 校验：弹窗应该已经关了。还开着就说明没提交成功 */
+        const stillOpen = await page.getByText('请选择声明类型', { exact: false }).count()
+        if (stillOpen) {
+          step('⚠ 声明弹窗没关掉（可能没点到确定）—— 点确认前请手动选')
+          return { ok: false, why: '弹窗未提交', shotPath }
+        }
+        step('已选「自主声明 → 内容由 AI 生成」（合规要求）')
+        return { ok: true, shotPath, via: '自主声明' }
+      }
+      /* 点开了但没看到 AI 选项 —— 留截图，让人手选 */
+      await page.keyboard.press('Escape').catch(() => { })
+      step('⚠ 「自主声明」下拉里没看到 AI 选项 —— 点确认前请手动选（合规要求）')
+      return { ok: false, why: '自主声明里没有 AI 选项', shotPath: await shot(page, dir, '03e-ai-declare.png') }
+    }
+
+    /* ② 退回旧路径：高级设置 → 作品声明（老版本页面） */
     const adv = page.getByText('高级设置', { exact: true }).first()
     if (await adv.count()) {
       await adv.scrollIntoViewIfNeeded({ timeout: 4000 }).catch(() => { })
       await adv.click({ timeout: 4000 }).catch(() => { })
       await page.waitForTimeout(1200)
     }
-
-    /* 「作品声明」区块里的「内容由 AI 生成」勾选项 */
-    const AI_RE = /内容由\s*AI\s*生成|AI\s*生成内容|人工智能生成/
     let clicked = false
     for (const scope of [
       () => page.getByText(AI_RE).first(),
@@ -554,7 +658,7 @@ async function declareAiGenerated(page, dir, step) {
     const shotPath = await shot(page, dir, '03e-ai-declare.png')
     if (clicked) {
       step('已勾选「内容由 AI 生成」声明（合规要求）')
-      return { ok: true, shotPath }
+      return { ok: true, shotPath, via: '高级设置' }
     }
     /* 找不到就明确喊出来 —— 合规项不能静默跳过 */
     step('⚠ 没找到「内容由 AI 生成」声明入口 —— 点确认前请在页面上手动勾选（合规要求）')
@@ -688,7 +792,7 @@ export async function publish(job, { step, awaitConfirm }) {
           await page.waitForTimeout(1200)
 
           /* 封面：用成片目录里的 cover.png，比抖音自动抽帧好看 */
-          const cov = await setCover(page, dir, step, p.cover)
+          const cov = await setCover(page, dir, step, p.cover, p.coverVert)
 
           /* 地点：尽力而为，失败不阻塞 */
           const loc = await addLocation(page, dir, step, p.location)

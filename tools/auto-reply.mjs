@@ -25,7 +25,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { ROOT, logEvent } from '../core/log.mjs'
-import { chatJsonDetailed } from '../core/llm.mjs'
+import { chatJsonDetailed, llmConfig } from '../core/llm.mjs'
 import { isOffPeak, describe } from '../core/offpeak.mjs'
 import { readConfig } from '../core/shell.mjs'
 import * as insight from '../douyin/insight.mjs'
@@ -62,9 +62,25 @@ function resolvePersonaFile() {
 }
 const PERSONA_FILE = resolvePersonaFile()
 
-const MAX_PER_VIDEO = 8        // 单条视频单轮最多回几条，防失控
-const DM_GAP_MS = 12000        // 私信之间隔久一点，私信风控比评论严
-const VIDEO_LOOKBACK = 2       // 只看最新几条作品
+/* ── 2026-11-03 zuige 定的规矩 ──
+ * · 只回 2026-10-01 之后发布的视频（更早的是老视频，评论都是陈年旧账）
+ * · 每次都要重新看有没有新视频，**所有符合条件的视频**都要扫，不是只看最新一条
+ * · 单个视频的评论读全（最多 300 条），别只读第一页
+ * · 每轮总共最多回 50 条，不分视频均分 */
+const SINCE = '2026-10-01'
+const MAX_TOTAL = 50             // 单轮总上限
+const MAX_PER_VIDEO = 20         // 单视频上限（防一个大爆款吃光额度）
+const MAX_COMMENTS_PER_VIDEO = 300
+const COMMENT_PAGE = 20          // 接口一页 20 条
+const MAX_VIDEOS = 30            // 单轮最多扫几条作品（兜底，防"时间未知"的全量灌进来）
+const LLM_BATCH = 25             // 一次喂给 LLM 多少条（再多容易把 JSON 截断）
+const DM_GAP_MS = 12000          // 私信之间隔久一点，私信风控比评论严
+
+/* 图片评论（表情包）只用这些颜文字回，**不交给 LLM** ——
+ * ① LLM 看不见图，硬编一句必然变成「这张图好搞笑」这种睁眼说瞎话；
+ * ② 也省一次调用。 */
+const KAOMOJI = ['(´・ω・)', '(๑•̀ㅂ•́)و✧', '(๑˃̵ᴗ˂̵)', 'ヽ(•̀ω•́ )ゝ', '(｡･ω･｡)ﾉ', '(＾▽＾)']
+const KAO_OFFSET = Math.floor(Math.random() * KAOMOJI.length)
 
 /* ═══════════ 状态 ═══════════ */
 function loadState() {
@@ -78,9 +94,12 @@ function loadState() {
 function saveState(s) {
   fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true })
   const replied = s.repliedComments
-  /* 只留最近 400 条，防止文件无限膨胀 */
+  /* 留最近 3000 条，防止文件无限膨胀。
+   * 🔴 2026-11-03 从 400 提到 3000：按新规矩每轮最多 50 条、一天能跑十几轮，
+   *    400 条只够七八轮 —— 太早被挤掉的 id 下一轮会重新走一遍「查历史回复」，
+   *    白白多打几十次接口。3000 条 ≈ 300KB，无所谓。 */
   const keys = Object.keys(replied).sort((a, b) => (replied[b].at || 0) - (replied[a].at || 0))
-  for (const k of keys.slice(400)) delete replied[k]
+  for (const k of keys.slice(3000)) delete replied[k]
   s.lastRun = Date.now()
   fs.writeFileSync(STATE_FILE, JSON.stringify(s, null, 1), 'utf8')
 }
@@ -190,30 +209,86 @@ async function handleComments() {
   /* 先让 server 去抓一遍新的（它自己有缓存，force 才真打抖音） */
   await api('/douyin/refresh', { method: 'POST' }).catch(e => log('[评论] 刷新失败（继续用缓存）：' + String(e.message).slice(0, 80)))
 
-  const works = await api(`/douyin/works?limit=${VIDEO_LOOKBACK}`)
-  const targets = (works.items || []).slice(0, VIDEO_LOOKBACK)
-  log(`[评论] 检查最近 ${targets.length} 条作品`)
+  /* 🔴 自己的昵称：判断「这条是我回的 / 这是我自己发的评论」只认它。
+   *    creator 后台评论接口的 is_author 语义是坏的 —— 2026-11-02 实测：
+   *    同样「已经被我回复过」的评论，第一条作品全返回 false，第二条作品全返回 true。
+   *    拿它当判据迟早要误跳，所以改比昵称；拿不到昵称才退回 is_author。 */
+  let MY_NAME = ''
+  try {
+    const me = await api('/douyin/profile')
+    MY_NAME = String((me && me.profile && me.profile.nickname) || '').trim()
+  } catch (e) {
+    log('[评论] 拿不到自己昵称，本次退回 is_author 判据：' + String(e.message).slice(0, 60))
+  }
+  const isMine = (x) => (MY_NAME ? String(x.user || '').trim() === MY_NAME : Boolean(x.isAuthor))
+
+  /* 🔴 拉 60 条，再自己按发布时间过滤 —— 不拿 limit 直接去请求抖音，
+   *    那个接口条数少的时候排序不可靠（详见 douyin/insight.mjs 的 works()）。 */
+  const works = await api('/douyin/works?limit=60')
+  const all = works.items || []
+  const sinceTs = Math.floor(new Date(SINCE + 'T00:00:00+08:00').getTime() / 1000)
+
+  /* 时间未知的（work_list 那边没给出 create_time）**不能丢**：
+   * 刚发出来的新视频恰恰最容易在 work_list 里缺席，一丢就正好复现
+   * 「最新视频的评论没人回」。所以按新视频处理，排在前面先扫。 */
+  const unknown = all.filter(w => !(Number(w.createTime) > 0))
+  const recent = all.filter(w => Number(w.createTime) >= sinceTs)
+  const older = all.length - unknown.length - recent.length
+  const targets = [...unknown, ...recent].slice(0, MAX_VIDEOS)
+
+  log(`[评论] 作品 ${all.length} 条：${SINCE} 之后 ${recent.length} 条、时间未知 ${unknown.length} 条（按新的算）、更早跳过 ${older} 条`)
+  log(`[评论] 本轮扫 ${targets.length} 条作品${MY_NAME ? `（我是「${MY_NAME}」）` : ''}`)
 
   const pending = []
   for (const w of targets) {
+    const label = String(w.title || w.plainId || '').slice(0, 18)
     let list
     try {
-      list = await api(`/douyin/comments?item=${encodeURIComponent(w.plainId)}&count=30`)
+      list = await api(`/douyin/comments?item=${encodeURIComponent(w.plainId)}&count=${COMMENT_PAGE}`)
     } catch (e) {
-      log(`  · ${w.plainId} 拉评论失败：${String(e.message).slice(0, 80)}`)
+      log(`  · ${label} 拉评论失败：${String(e.message).slice(0, 80)}`)
       continue
     }
-    log(`  · ${String(w.title || '').slice(0, 20)} 评论 ${list.comments.length} 条`)
+    if (list.ok === false) { log(`  · ${label} 拉评论失败：${String(list.error || '').slice(0, 80)}`); continue }
 
-    for (const c of list.comments) {
+    /* 🔴 2026-11-03：评论要翻页。接口默认一页只给 20 条，但一条热门视频
+     *    `webTotal` 能到 61、页面显示 63，`hasMore` 一直是 true。
+     *    原来只读第一页 —— 第二页的评论**从来没被检查过**。
+     *    （这次运气好：第二页 9 条恰好都是老评论、都已回过。换个时间新评论
+     *      掉到第二页就永远读不到，表现为"最新评论没人回"。）
+     *    现在按 zuige 的要求读到 300 条为止。 */
+    const collected = [...(list.comments || [])]
+    const got = new Set(collected.map(c => String(c.id)))
+    let hasMore = Boolean(list.hasMore)
+    let cursor = Number(list.cursor) || collected.length
+    for (let guard = 0; hasMore && collected.length < MAX_COMMENTS_PER_VIDEO && guard < 40; guard++) {
+      let next
+      try {
+        next = await api(`/douyin/comments?item=${encodeURIComponent(w.plainId)}&count=${COMMENT_PAGE}&cursor=${cursor}`)
+      } catch (e) {
+        log(`  · ${label} 第 ${guard + 2} 页失败：${String(e.message).slice(0, 60)}`)
+        break
+      }
+      const rows = (next && next.comments) || []
+      /* 翻页翻出重复 = 接口到顶了（抖音的 cursor 有时会原地不动，不判会死循环） */
+      const fresh = rows.filter(c => !got.has(String(c.id)))
+      if (!fresh.length) break
+      for (const c of fresh) { got.add(String(c.id)); collected.push(c) }
+      hasMore = Boolean(next.hasMore)
+      cursor = Number(next.cursor) || (cursor + rows.length)
+    }
+    const list2 = collected.slice(0, MAX_COMMENTS_PER_VIDEO)
+    log(`  · ${label} 评论 ${list2.length} 条${hasMore && list2.length >= MAX_COMMENTS_PER_VIDEO ? `（已到 ${MAX_COMMENTS_PER_VIDEO} 条上限，剩余下轮）` : ''}`)
+
+    for (const c of list2) {
       const key = String(c.numId || c.id)
       if (state.repliedComments[key]) continue          // 本地账本已记
-      if (c.isAuthor) continue                          // 自己发的不回
+      if (isMine(c)) continue                           // 自己发的评论不回
       /* replyCount>0 时才去查是不是我回的 —— 每条都查太慢 */
       let mine = []
       if (c.replyCount > 0) {
         const r = await api(`/douyin/replies?comment=${encodeURIComponent(c.id)}`).catch(() => null)
-        if (r && r.ok) mine = (r.replies || []).filter(x => x.isAuthor).map(x => x.text)
+        if (r && r.ok) mine = (r.replies || []).filter(isMine).map(x => x.text)
       }
       if (mine.length) {
         state.repliedComments[key] = { at: Date.now(), why: 'history', user: c.user }
@@ -223,52 +298,106 @@ async function handleComments() {
         itemPlain: w.plainId, commentId: c.id, numId: c.numId || '',
         user: c.user, text: c.text || '', isImage: Boolean(c.isImage),
         replyCount: c.replyCount,
+        createTime: Number(c.createTime) || 0,
       })
     }
   }
 
-  /* 每条视频最多回 MAX_PER_VIDEO 条 */
-  const byVideo = {}
-  const clipped = []
-  for (const p of pending) {
-    byVideo[p.itemPlain] = byVideo[p.itemPlain] || 0
-    if (byVideo[p.itemPlain] >= MAX_PER_VIDEO) continue
-    byVideo[p.itemPlain]++
-    clipped.push(p)
+  if (!pending.length) {
+    log('[评论] 没有待回的评论')
+    return { checked: 0, sent: 0 }
   }
 
-  log(`[评论] 待回 ${pending.length} 条，本轮取 ${clipped.length} 条`)
-  if (!clipped.length) return { checked: pending.length, sent: 0 }
+  /* ── 选本轮要回哪些：按视频**轮流取** ──
+   * 为什么轮流而不是顺序取满：zuige 明确要求「所有视频的评论都回复，而不是
+   * 单单一个视频」。如果顺序取，一条大爆款就能吃掉全部 50 条额度，
+   * 后面的视频一条都轮不到，表现就是「新视频没人回」。
+   * 每条视频内部先回最新的 —— 观众刚留言就收到回复，体感最好。 */
+  const groups = new Map()
+  for (const p of pending) {
+    if (!groups.has(p.itemPlain)) groups.set(p.itemPlain, [])
+    groups.get(p.itemPlain).push(p)
+  }
+  for (const arr of groups.values()) arr.sort((a, b) => (b.createTime || 0) - (a.createTime || 0))
 
-  /* ── LLM 批量生成（一次调用，省 token） ── */
+  const taken = new Map()
+  const picked = []
+  let progress = true
+  while (picked.length < MAX_TOTAL && progress) {
+    progress = false
+    for (const [k, arr] of groups) {
+      if (picked.length >= MAX_TOTAL) break
+      if ((taken.get(k) || 0) >= MAX_PER_VIDEO) continue
+      const x = arr.shift()
+      if (!x) continue
+      taken.set(k, (taken.get(k) || 0) + 1)
+      picked.push(x)
+      progress = true
+    }
+  }
+
+  /* 图片评论 / 没有正文的评论 —— 只回一个颜文字，不走 LLM。
+   * ① LLM 看不见图，硬编一句必然变成「这张图好搞笑」这种睁眼说瞎话；
+   * ② 也省一次调用。 */
+  const isSticker = (p) => p.isImage || !String(p.text || '').trim()
+  const stickerOnes = picked.filter(isSticker)
+  const textOnes = picked.filter(p => !isSticker(p))
+  const drafts = stickerOnes.map((p, i) => ({ ...p, reply: KAOMOJI[(i + KAO_OFFSET) % KAOMOJI.length] }))
+
+  log(`[评论] 待回 ${pending.length} 条（${groups.size} 条视频），本轮取 ${picked.length} 条：文字 ${textOnes.length} + 图片/空 ${stickerOnes.length}`)
+
+  /* ── LLM 生成文字回复。分批：一次 50 条容易把 JSON 截断，
+   *    截断一次整轮全废，宁可多花一点输入 token 换稳定。 ── */
   const sys = `你在替抖音账号「zuige大肥鱼」回复自己视频下的评论。以下是你的人设卡，必须严格遵守：
 
 ${persona}
 
 补充规则（评论区场景，与直播间不同，优先遵守）：
 1. 每条回复 **20 个汉字以内**，一句话，**句尾不加句号**。
-2. 不要 emoji 表情字符（🍚🐟❤️ 这类一律不用）。抖音官方表情请写成 [看] [发怒] 这种方括号编码，最多用一个。
+2. 语气**俏皮**、有点小迷糊，但不能蠢。可以带一个可爱颜文字，**不强制**：
+   (´・ω・)   (๑•̀ㅂ•́)و✧   (๑˃̵ᴗ˂̵)   ヽ(•̀ω•́ )ゝ   (｡･ω･｡)ﾉ   (＾▽＾)
+   🚫 不要用 🍚🐟❤️ 这类彩色 emoji（抖音评论会掉字）。
+   🚫 颜文字和官方表情 [看] [发怒] 这类方括号编码**二选一**，不许同时出现。
+   🚫 颜文字最多一个，不许堆两个。
 3. 可以直接叫对方昵称，也可以叫「你」；不许叫「宝宝/亲爱的/老婆/主人」。
 4. 遇到梗要接住，不要客套。白饭、红烧、广工、鲸鱼 都是自己的梗。
-5. 对方发的是**图片评论**（isImage=true，通常是表情包），就用文字应一声、逗一句，不要假装看见了具体内容。
+5. 短问题就短答（「？」「好」「哈哈」「沙发」这种，回一句轻的就行），别硬撑一长句。
+   🚫 不许假装看见了图片/视频里的内容（你看不到）。
 6. 不讨礼物、不喊关注点赞、不提任何金融/收益/仓位相关的词。
-7. 不要重复对方原话，不要复读。
-8. 语气软糯、有点小迷糊，但不能蠢；被骂也别硬顶。
+7. 不要重复对方原话，不要复读同一句。
+8. 被骂也别硬顶，软软地岔开就行。
 
-只输出 JSON：{"replies":[{"i":0,"reply":"..."}]}`
+只输出 JSON：{"replies":[{"i":0,"reply":"..."}]}，i 必须和输入里的 i 一一对应。`
 
-  const payload = clipped.map((p, i) => ({ i, user: p.user, text: p.text, isImage: p.isImage }))
-  let drafts = []
-  try {
-    const { data, usage, ms } = await chatJsonDetailed({ system: sys, user: JSON.stringify(payload, null, 1), maxTokens: 1200, temperature: 0.9 })
-    log(`[评论] LLM ${ms}ms / ${usage.total_tokens || '?'} tokens`)
-    drafts = (data.replies || []).map(x => ({ ...clipped[x.i], reply: String(x.reply || '').trim() })).filter(x => x.reply && x.itemPlain)
-  } catch (e) {
-    log('[评论] LLM 失败：' + String(e.message || e).slice(0, 200))
+  for (let s = 0; s < textOnes.length; s += LLM_BATCH) {
+    const chunk = textOnes.slice(s, s + LLM_BATCH)
+    const payload = chunk.map((p, i) => ({ i, user: p.user, text: String(p.text || '').slice(0, 120) }))
+    try {
+      const { data, usage, ms } = await chatJsonDetailed({
+        system: sys,
+        user: JSON.stringify(payload, null, 1),
+        maxTokens: Math.min(4000, 200 + chunk.length * 80),
+        temperature: 0.9,
+      })
+      /* 🔴 日志里必须带模型名：2026-11-02 出过一次「到底跑的是 flash 还是 pro」
+       *    的扯皮，配置文件是谁写的都不记得了。打出来最省事。 */
+      log(`[评论] LLM 第 ${Math.floor(s / LLM_BATCH) + 1} 批 ${chunk.length} 条 ${ms}ms / ${usage.total_tokens || '?'} tokens / ${llmConfig().model}`)
+      for (const x of (data.replies || [])) {
+        const p = chunk[Number(x.i)]
+        const t = String(x.reply || '').trim()
+        if (p && t) drafts.push({ ...p, reply: t })
+      }
+    } catch (e) {
+      log(`[评论] LLM 第 ${Math.floor(s / LLM_BATCH) + 1} 批失败（这一批跳过）：` + String(e.message || e).slice(0, 160))
+    }
+  }
+
+  if (!drafts.length) {
+    log('[评论] 一条文案都没生成出来，本轮不发')
     return { checked: pending.length, sent: 0, error: 'llm' }
   }
 
-  for (const d of drafts) log(`   ${d.user}${d.isImage ? '（图片）' : ''}: "${d.text.slice(0, 20)}" → "${d.reply}"`)
+  for (const d of drafts) log(`   ${d.user}${isSticker(d) ? '（图片）' : ''}: "${String(d.text || '').slice(0, 20)}" → "${d.reply}"`)
 
   if (!YES) {
     log(`[评论] 演练模式，${drafts.length} 条都没发（加 --yes 才发）`)
@@ -278,10 +407,10 @@ ${persona}
   /* ── 发送 ── */
   let sent = 0, fail = 0, stoppedAtPeak = false
   for (const [n, d] of drafts.entries()) {
-    /* 时段守卫：一轮最多 16 条 × 60 秒 ≈ 16 分钟，8:00 起跑碰不到 9:00。
-     * 但网络卡住/评论暴涨时仍可能滑进高峰，所以每条前再确认一次 ——
+    /* 时段守卫：一轮最多 50 条 × 60 秒（服务端限速）≈ 50 分钟，
+     * 可能从平峰一路跑到高峰。所以每条前都再确认一次 ——
      * 进了高峰就停手，剩下的留到下一轮。宁可晚点回，也不要出现
-     * 「9 点还在别人视频底下发消息」这种事。 */
+     * 「工作时间还在别人视频底下刷」这种事。 */
     if (!isOffPeak() && !FORCE) {
       log('[评论] 已进入高峰时段，停止发送，剩余留到下一轮')
       stoppedAtPeak = true
@@ -340,9 +469,17 @@ async function handleDm() {
     if (sess.name === '陌生人消息') continue       // 聚合入口，不是真会话
     if (/系统通知|官方|小助手/.test(sess.name)) continue
 
-    /* 按名字点，不按序号 —— 列表会重排，序号在两次调用之间就变了 */
-    await dm.openSession(sess.name)
-    await new Promise(r => setTimeout(r, 1200))
+    /* 按名字点，不按序号 —— 列表会重排，序号在两次调用之间就变了。
+     * 🔴 2026-11-03：单个会话点不开（列表深处、要滚动、抖音抽风）不该拖垮整轮。
+     *    原来这里是裸 await，一个「活这就行」抛错，后面所有会话全不处理，
+     *    整轮结果直接记成 dm.error。 */
+    try {
+      await dm.openSession(sess.name)
+      await new Promise(r => setTimeout(r, 1200))
+    } catch (e) {
+      log(`  · ${sess.name} 点不开，跳过（${String(e.message || e).slice(0, 60)}）`)
+      continue
+    }
     const t = await dm.readThread({ limit: 12 })
     if (!t.ok) { log(`  · ${sess.name} 读消息失败`); continue }
 

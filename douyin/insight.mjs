@@ -223,9 +223,22 @@ export async function profile({ force = false } = {}) {
 
 /** 作品列表：item/list 给加密 id（评论要用）+ work_list 给播放/点赞等统计，按明文 id 合并 */
 export async function works({ limit = 20, force = false } = {}) {
-  const { at, v } = await cached('works:' + limit, async () => {
-    const a = await jget(`${CREATOR}/aweme/v1/creator/item/list/?cursor=&aid=2906&count=${limit}`)
-    const b = await jget(`${CREATOR}/janus/douyin/creator/pc/work_list?status=0&count=${limit}&max_cursor=0&device_platform=android`)
+  /* 🔴 2026-11-03：**不能拿 limit 直接去请求**。
+   *    实测 `item/list?count=2` 返回的前两条里没有 11-02 刚发的那个视频，
+   *    而 `count=10` 时它就排在第 0 位 —— 抖音那个接口的条数少时排序不可靠
+   *    （缓存 key 也跟着 limit 分裂，works:1 / works:2 / works:20 各存一份，
+   *    互相不一致）。后果：只扫"最近两条"时永远看不到最新那条视频，
+   *    评论自然没人回。
+   *    改成：固定多抓一批 → 自己按 createTime 倒序 → 再截断到 limit。
+   *    缓存也统一成一份 `works:all`，别再按 limit 分裂。 */
+  /* 🔴 抓取条数必须是**常量**，不能跟着 limit 走 —— 缓存 key 是固定的
+   *    `works:all`，如果第一次调用 FETCH=30、第二次 limit=60 又去抓 60，
+   *    缓存里存的东西就取决于"谁先调用"，调试时数据忽多忽少极难复现。
+   *    固定 60：够覆盖两年内所有作品，也远大于任何调用方会要的数量。 */
+  const FETCH = 60
+  const { at, v } = await cached('works:all', async () => {
+    const a = await jget(`${CREATOR}/aweme/v1/creator/item/list/?cursor=&aid=2906&count=${FETCH}`)
+    const b = await jget(`${CREATOR}/janus/douyin/creator/pc/work_list?status=0&count=${FETCH}&max_cursor=0&device_platform=android`)
     const list = (a.json && a.json.item_info_list) || []
     const extra = new Map()
     for (const w of (b.json && b.json.aweme_list) || []) {
@@ -259,16 +272,18 @@ export async function works({ limit = 20, force = false } = {}) {
         },
       }
     })
+    /* 按发布时间**新→旧**。createTime 拿不到的沉到最后，别让它们冒充最新。 */
+    items.sort((x, y) => (y.createTime || 0) - (x.createTime || 0))
     return { ok: true, items }
   }, { force })
-  return { ...v, cachedAt: at }
+  return { ...v, items: (v.items || []).slice(0, Math.min(limit, FETCH)), cachedAt: at }
 }
 
 /** 明文 id / 加密 id 都收，统一换成加密 id（评论接口只认加密串） */
 async function resolveItem(idOrPlain) {
   const s = String(idOrPlain || '')
   if (s.startsWith('@')) return { id: s, plain: '' }
-  const w = await works({ limit: 20 })
+  const w = await works({ limit: 50 })
   if (!w.ok) return { id: '', plain: s, error: w.error }
   const hit = w.items.find(x => x.plainId === s) || w.items.find(x => String(x.id).includes(s))
   if (!hit) return { id: '', plain: s, error: '作品列表里没有这个 id（可能超出最近 20 条）' }
