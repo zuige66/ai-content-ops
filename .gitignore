@@ -12,6 +12,10 @@ logs/
 state/
 # 成片与中间产物（一个原始录屏就 45MB）
 video/out/
+# 🔴 发布留档（release/daily + release/github）：每条片子一个目录，
+#    里面是 mp4 + 音频 + 三张封面 + voice.md/plan.md。
+#    三条片子就 55MB，进 git 会把仓库撑爆，所以和 video/out/ 一样不进仓库。
+release/
 # 进程 pid、控制台日志
 .run/
 
